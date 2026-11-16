@@ -1,5 +1,5 @@
 -- ============================================================================
--- SCRIPT MADILA.LUA - ĐÓNG BĂNG MỤC TIÊU (FREEZE) + ESP + FLY + NOCLIP
+-- SCRIPT MADILA.LUA - ĐÓNG BĂNG TOÀN DIỆN (FORCE POSITION LOCK + ESP)
 -- ============================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -18,7 +18,7 @@ local espEnabled = false
 local speed = 50
 local bg, bv
 local espObjects = {}
-local frozenTargets = {} -- Lưu trạng thái đóng băng từng mục tiêu
+local frozenTargets = {} -- Lưu trữ danh sách mục tiêu đang bị khóa tọa độ
 
 -- 1. Tìm kiếm Player hoặc NPC/Bot theo tên
 local function findTargetByName(query)
@@ -41,7 +41,30 @@ local function findTargetByName(query)
 	return nil
 end
 
--- 2. Tính năng Đóng Băng / Mở Khóa di chuyển mục tiêu
+-- 2. Vòng lặp cưỡng chế vị trí (Force Lock Loop) - Ngăn mục tiêu dịch chuyển
+RunService.Heartbeat:Connect(function()
+	for targetChar, lockedCFrame in pairs(frozenTargets) do
+		if targetChar and targetChar.Parent and targetChar:FindFirstChild("HumanoidRootPart") then
+			local hrp = targetChar.HumanoidRootPart
+			local hum = targetChar:FindFirstChildOfClass("Humanoid")
+			
+			-- Liên tục ép vị trí và hướng về chỗ bị khóa, vô hiệu hóa mọi lệnh chạy
+			hrp.CFrame = lockedCFrame
+			hrp.AssemblyLinearVelocity = Vector3.zero
+			hrp.AssemblyAngularVelocity = Vector3.zero
+			
+			if hum then
+				hum.WalkSpeed = 0
+				hum.JumpPower = 0
+				hum.PlatformStand = true
+			end
+		else
+			-- Xóa khỏi danh sách nếu mục tiêu thoát hoặc biến mất
+			frozenTargets[targetChar] = nil
+		end
+	end
+end)
+
 local function toggleFreezeTarget(targetChar)
 	if not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then
 		warn("[MrDon] Không tìm thấy mục tiêu để đóng băng!")
@@ -49,30 +72,21 @@ local function toggleFreezeTarget(targetChar)
 	end
 
 	local hrp = targetChar.HumanoidRootPart
-	local hum = targetChar:FindFirstChildOfClass("Humanoid")
-	local isCurrentlyFrozen = frozenTargets[targetChar] == true
-
-	if not isCurrentlyFrozen then
-		-- Đóng băng: Neo cứng vị trí và khóa tốc độ
-		frozenTargets[targetChar] = true
-		hrp.Anchored = true
-		hrp.AssemblyLinearVelocity = Vector3.zero
-		hrp.AssemblyAngularVelocity = Vector3.zero
-		if hum then
-			hum.WalkSpeed = 0
-			hum.JumpPower = 0
-		end
-		print("[MrDon] Đã đóng băng mục tiêu:", targetChar.Name)
+	if not frozenTargets[targetChar] then
+		-- Bật đóng băng và lưu lại tọa độ cố định tại thời điểm bấm
+		frozenTargets[targetChar] = hrp.CFrame
+		print("[MrDon] Đã khóa cứng toàn diện mục tiêu:", targetChar.Name)
 		return true
 	else
-		-- Mở khóa: Khôi phục trạng thái di chuyển
-		frozenTargets[targetChar] = nil
-		hrp.Anchored = false
+		-- Tắt đóng băng, trả lại trạng thái cho nhân vật
+		local hum = targetChar:FindFirstChildOfClass("Humanoid")
 		if hum then
 			hum.WalkSpeed = 16
 			hum.JumpPower = 50
+			hum.PlatformStand = false
 		end
-		print("[MrDon] Đã mở khóa di chuyển cho:", targetChar.Name)
+		frozenTargets[targetChar] = nil
+		print("[MrDon] Đã mở khóa cho:", targetChar.Name)
 		return false
 	end
 end
@@ -192,11 +206,11 @@ textBox.TextSize = 14
 textBox.Parent = frame
 Instance.new("UICorner", textBox).CornerRadius = UDim.new(0, 6)
 
--- Nút Đóng Băng / Mở Khóa
+-- Nút Đóng Băng Cưỡng Chế
 local freezeBtn = Instance.new("TextButton")
 freezeBtn.Size = UDim2.new(1, -20, 0, 28)
 freezeBtn.Position = UDim2.new(0, 10, 0, 48)
-freezeBtn.Text = "Đóng Băng / Mở Khóa Mục Tiêu"
+freezeBtn.Text = "Đóng Băng Cưỡng Chế"
 freezeBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
 freezeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
 freezeBtn.Font = Enum.Font.SourceSansBold
@@ -214,7 +228,7 @@ freezeBtn.MouseButton1Click:Connect(function()
 	end
 end)
 
--- Nút Bật/Tắt Định Vị (ESP)
+-- Nút Định Vị (ESP)
 local espBtn = Instance.new("TextButton")
 espBtn.Size = UDim2.new(1, -20, 0, 28)
 espBtn.Position = UDim2.new(0, 10, 0, 84)
@@ -284,4 +298,4 @@ lagBtn.MouseButton1Click:Connect(function()
 	print("[MrDon] Đã giảm lag thành công.")
 end)
 
-print("[MrDon] Script Madila (Freeze + ESP) đã khởi chạy thành công!")
+print("[MrDon] Script Madila (Force Lock + ESP) đã sẵn sàng!")
