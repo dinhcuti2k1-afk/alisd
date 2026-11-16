@@ -1,76 +1,176 @@
 -- ============================================================================
--- SCRIPT HOÀN CHỈNH CHO GITHUB (MADILA.LUA) - CLIENT EXECUTOR READY
+-- SCRIPT MADILA.LUA - ĐÃ SỬA LỖI NHỐT & BỔ SUNG ĐỊNH VỊ (ESP) PLAYER/BOT
 -- ============================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
+local Camera = Workspace.CurrentCamera
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
--- 1. Xử lý RemoteEvent tự động (Hỗ trợ cả Local Server hoặc Test công khai)
+-- 1. Xử lý RemoteEvent cho lồng sắt
 local cageEvent = ReplicatedStorage:FindFirstChild("CagePlayerEvent")
-if not cageEvent and RunService:IsStudio() then
-	-- Tự tạo RemoteEvent phòng hờ nếu test trong Studio
+if not cageEvent then
 	cageEvent = Instance.new("RemoteEvent")
 	cageEvent.Name = "CagePlayerEvent"
 	cageEvent.Parent = ReplicatedStorage
 end
 
--- 2. States (Trạng thái tính năng)
+-- Trạng thái
 local flying = false
 local noclip = false
+local espEnabled = false
 local speed = 50
 local bg, bv
+local espObjects = {}
 
--- 3. Lag Reduction (Giảm lag tối ưu)
-local function applyLagReduction()
-	for _, descendant in ipairs(Workspace:GetDescendants()) do
-		if descendant:IsA("BasePart") then
-			descendant.CastShadow = false
-			descendant.Material = Enum.Material.SmoothPlastic
-		elseif descendant:IsA("ParticleEmitter") or descendant:IsA("Trail") or descendant:IsA("Fire") or descendant:IsA("Smoke") then
-			descendant.Enabled = false
+-- Tìm kiếm player hoặc NPC/Bot chính xác hơn
+local function findTargetByName(query)
+	if not query or query == "" then return nil end
+	local lowerQ = string.lower(query)
+	
+	-- Tìm trong Players trước
+	for _, p in ipairs(Players:GetPlayers()) do
+		if string.find(string.lower(p.Name), lowerQ) or string.find(string.lower(p.DisplayName), lowerQ) then
+			return p.Character
 		end
 	end
-	pcall(function()
-		UserSettings():GetService("UserGameSettings").SavedQualityLevel = Enum.SavedQualitySetting.Level1
-	end)
-	print("[MrDon] Đã tối ưu giảm lag thành công.")
+	
+	-- Tìm trong Workspace (Dành cho Bot / NPC)
+	for _, obj in ipairs(Workspace:GetChildren()) do
+		if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
+			if string.find(string.lower(obj.Name), lowerQ) then
+				return obj
+			end
+		end
+	end
+	return nil
 end
 
--- 4. Flight Toggle (Tính năng Bay)
+-- 2. Tính năng Định vị (ESP) Player và Bot
+local function toggleESP(active)
+	espEnabled = active
+	if not espEnabled then
+		for _, billboard in pairs(espObjects) do
+			if billboard then billboard:Destroy() end
+		end
+		espObjects = {}
+	end
+end
+
+RunService.RenderStepped:Connect(function()
+	if not espEnabled then return end
+	
+	-- Quét toàn bộ Player và NPC có Humanoid trong Workspace
+	for _, obj in ipairs(Workspace:GetChildren()) do
+		if obj:IsA("Model") and obj:FindFirstChild("HumanoidRootPart") and obj:FindFirstChild("Humanoid") then
+			if obj ~= player.Character then
+				local hrp = obj.HumanoidRootPart
+				local existingGui = hrp:FindFirstChild("EspTag")
+				
+				if not existingGui then
+					local billboard = Instance.new("BillboardGui")
+					billboard.Name = "EspTag"
+					billboard.Size = UDim2.new(0, 100, 0, 40)
+					billboard.StudsOffset = Vector3.new(0, 3, 0)
+					billboard.AlwaysOnTop = true
+					billboard.Parent = hrp
+					
+					local textLabel = Instance.new("TextLabel")
+					textLabel.Size = UDim2.new(1, 0, 1, 0)
+					textLabel.BackgroundTransparency = 1
+					textLabel.Text = obj.Name
+					textLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+					textLabel.TextScaled = true
+					textLabel.Font = Enum.Font.SourceSansBold
+					textLabel.Parent = billboard
+					
+					espObjects[obj] = billboard
+				end
+			end
+		end
+	end
+end)
+
+-- 3. Tạo lồng sắt trực tiếp tại Client (Khắc phục hoàn toàn lỗi không nhận lệnh server)
+local function spawnCageAtTarget(targetChar)
+	if not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then
+		warn("[MrDon] Không tìm thấy mục tiêu để nhốt!")
+		return
+	end
+	
+	local targetHRP = targetChar.HumanoidRootPart
+	local centerCFrame = targetHRP.CFrame
+	
+	local cageModel = Instance.new("Model")
+	cageModel.Name = "IronCage_Client"
+	
+	local size = 8
+	local barThickness = 0.4
+	local height = 9
+	local barSpacing = 1.6
+	
+	local function createPart(partSize, offsetCFrame)
+		local p = Instance.new("Part")
+		p.Size = partSize
+		p.CFrame = centerCFrame * offsetCFrame
+		p.Anchored = true
+		p.CanCollide = true
+		p.Material = Enum.Material.CorrodedMetal
+		p.Color = Color3.fromRGB(70, 75, 80)
+		p.Parent = cageModel
+		return p
+	end
+	
+	-- Sàn và Trần lồng
+	createPart(Vector3.new(size, barThickness, size), CFrame.new(0, -height / 2, 0))
+	createPart(Vector3.new(size, barThickness, size), CFrame.new(0, height / 2, 0))
+	
+	-- Các thanh sắt xung quanh
+	local halfSize = (size / 2) - (barThickness / 2)
+	for offset = -halfSize, halfSize, barSpacing do
+		createPart(Vector3.new(barThickness, height, barThickness), CFrame.new(offset, 0, halfSize))
+		createPart(Vector3.new(barThickness, height, barThickness), CFrame.new(offset, 0, -halfSize))
+		createPart(Vector3.new(barThickness, height, barThickness), CFrame.new(halfSize, 0, offset))
+		createPart(Vector3.new(barThickness, height, barThickness), CFrame.new(-halfSize, 0, offset))
+	end
+	
+	cageModel.Parent = Workspace
+	print("[MrDon] Đã nhốt thành công mục tiêu vào lồng sắt!")
+end
+
+-- Lắng nghe sự kiện mạng nếu chơi online nhiều người
+cageEvent.OnClientEvent:Connect(function(targetChar)
+	spawnCageAtTarget(targetChar)
+end)
+
+-- 4. Tính năng Bay (Fly)
 local function toggleFlight(active)
 	flying = active
 	local hum = character:FindFirstChildOfClass("Humanoid")
 	if flying then
 		if hum then hum.PlatformStand = true end
-		
-		bg = Instance.new("BodyGyro")
+		bg = Instance.new("BodyGyro", humanoidRootPart)
 		bg.MaxTorque = Vector3.new(400000, 400000, 400000)
 		bg.P = 20000
-		bg.Parent = humanoidRootPart
 		
-		bv = Instance.new("BodyVelocity")
+		bv = Instance.new("BodyVelocity", humanoidRootPart)
 		bv.MaxForce = Vector3.new(400000, 400000, 400000)
 		bv.Velocity = Vector3.new(0, 0, 0)
-		bv.Parent = humanoidRootPart
 		
 		task.spawn(function()
 			while flying and character and humanoidRootPart do
-				local camera = Workspace.CurrentCamera
-				local moveDirection = Vector3.new()
-				
-				if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDirection = moveDirection + camera.CFrame.LookVector end
-				if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDirection = moveDirection - camera.CFrame.LookVector end
-				if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDirection = moveDirection - camera.CFrame.RightVector end
-				if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDirection = moveDirection + camera.CFrame.RightVector end
-				
-				bv.Velocity = moveDirection * speed
-				bg.CFrame = camera.CFrame
+				local moveDir = Vector3.new()
+				if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + Camera.CFrame.LookVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - Camera.CFrame.LookVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - Camera.CFrame.RightVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + Camera.CFrame.RightVector end
+				bv.Velocity = moveDir * speed
+				bg.CFrame = Camera.CFrame
 				RunService.RenderStepped:Wait()
 			end
 		end)
@@ -81,16 +181,16 @@ local function toggleFlight(active)
 	end
 end
 
--- 5. Noclip Loop (Xuyên tường)
+-- Xuyên tường
 RunService.Stepped:Connect(function()
 	if noclip and character then
-		for _, part in ipairs(character:GetDescendants()) do
-			if part:IsA("BasePart") then part.CanCollide = false end
+		for _, p in ipairs(character:GetDescendants()) do
+			if p:IsA("BasePart") then p.CanCollide = false end
 		end
 	end
 end)
 
--- 6. Giao diện người dùng (GUI Setup) - Đảm bảo hiện nút bấm ngay lập tức
+-- 5. Giao diện điều khiển (UI)
 if player.PlayerGui:FindFirstChild("MadilaAdminGui") then
 	player.PlayerGui.MadilaAdminGui:Destroy()
 end
@@ -101,78 +201,115 @@ screenGui.ResetOnSpawn = false
 screenGui.Parent = player:WaitForChild("PlayerGui")
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 220, 0, 115)
-frame.Position = UDim2.new(0, 20, 0.5, -60)
+frame.Size = UDim2.new(0, 240, 0, 230)
+frame.Position = UDim2.new(0, 20, 0.5, -115)
 frame.BackgroundColor3 = Color3.fromRGB(30, 32, 36)
 frame.BorderSizePixel = 0
 frame.Parent = screenGui
 
-local corner = Instance.new("UICorner")
-corner.CornerRadius = UDim.new(0, 8)
-corner.Parent = frame
+Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
 
 local textBox = Instance.new("TextBox")
 textBox.Size = UDim2.new(1, -20, 0, 30)
 textBox.Position = UDim2.new(0, 10, 0, 10)
-textBox.PlaceholderText = "Tên người chơi..."
+textBox.PlaceholderText = "Nhập tên Player hoặc Bot..."
 textBox.Text = ""
 textBox.BackgroundColor3 = Color3.fromRGB(45, 48, 54)
 textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
 textBox.Font = Enum.Font.SourceSans
-textBox.TextSize = 16
+textBox.TextSize = 14
 textBox.Parent = frame
+Instance.new("UICorner", textBox).CornerRadius = UDim.new(0, 6)
 
-local tBoxCorner = Instance.new("UICorner")
-tBoxCorner.CornerRadius = UDim.new(0, 6)
-tBoxCorner.Parent = textBox
+-- Nút Nhốt Lồng
+local cageBtn = Instance.new("TextButton")
+cageBtn.Size = UDim2.new(1, -20, 0, 28)
+cageBtn.Position = UDim2.new(0, 10, 0, 48)
+cageBtn.Text = "Nhốt Lồng Sắt Mục Tiêu"
+cageBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+cageBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+cageBtn.Font = Enum.Font.SourceSansBold
+cageBtn.TextSize = 14
+cageBtn.Parent = frame
+Instance.new("UICorner", cageBtn).CornerRadius = UDim.new(0, 6)
 
-local actionBtn = Instance.new("TextButton")
-actionBtn.Size = UDim2.new(1, -20, 0, 28)
-actionBtn.Position = UDim2.new(0, 10, 0, 48)
-actionBtn.Text = "Nhốt Lồng Sắt"
-actionBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
-actionBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-actionBtn.Font = Enum.Font.SourceSansBold
-actionBtn.TextSize = 15
-actionBtn.Parent = frame
-
-local btnCorner = Instance.new("UICorner")
-btnCorner.CornerRadius = UDim.new(0, 6)
-btnCorner.Parent = actionBtn
-
--- Xử lý sự kiện bấm nút nhốt lồng sắt
-actionBtn.MouseButton1Click:Connect(function()
-	if textBox.Text ~= "" then
-		if cageEvent then
-			cageEvent:FireServer(textBox.Text)
-			print("[MrDon] Đã gửi yêu cầu nhốt lồng tới:", textBox.Text)
-		else
-			warn("[MrDon] Không tìm thấy sự kiện mạng (RemoteEvent) trên server.")
-		end
+cageBtn.MouseButton1Click:Connect(function()
+	local targetChar = findTargetByName(textBox.Text)
+	if targetChar then
+		spawnCageAtTarget(targetChar)
+	else
+		warn("[MrDon] Không tìm thấy tên mục tiêu này!")
 	end
 end)
 
-local infoLabel = Instance.new("TextLabel")
-infoLabel.Size = UDim2.new(1, -20, 0, 24)
-infoLabel.Position = UDim2.new(0, 10, 0, 82)
-infoLabel.Text = "[F] Bay | [N] Xuyên Tường | [L] Giảm Lag"
-infoLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
-infoLabel.BackgroundTransparency = 1
-infoLabel.Font = Enum.Font.SourceSans
-infoLabel.TextSize = 13
-infoLabel.Parent = frame
+-- Nút Bật/Tắt Định Vị (ESP)
+local espBtn = Instance.new("TextButton")
+espBtn.Size = UDim2.new(1, -20, 0, 28)
+espBtn.Position = UDim2.new(0, 10, 0, 84)
+espBtn.Text = "Bật/Tắt Định Vị (ESP Bot/Player)"
+espBtn.BackgroundColor3 = Color3.fromRGB(60, 140, 180)
+espBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+espBtn.Font = Enum.Font.SourceSansBold
+espBtn.TextSize = 14
+espBtn.Parent = frame
+Instance.new("UICorner", espBtn).CornerRadius = UDim.new(0, 6)
 
--- Phím tắt điều khiển nhanh
-UserInputService.InputBegan:Connect(function(input, gameProcessed)
-	if gameProcessed then return end
-	if input.KeyCode == Enum.KeyCode.F then
-		toggleFlight(not flying)
-	elseif input.KeyCode == Enum.KeyCode.N then
-		noclip = not noclip
-		print("[MrDon] Noclip:", noclip)
-	elseif input.KeyCode == Enum.KeyCode.L then
-		applyLagReduction()
-	end
+espBtn.MouseButton1Click:Connect(function()
+	toggleESP(not espEnabled)
+	espBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(60, 140, 180)
 end)
 
-print("[MrDon] Script madila.lua đã khởi tạo giao diện thành công!")
+-- Nút Bay
+local flyBtn = Instance.new("TextButton")
+flyBtn.Size = UDim2.new(1, -20, 0, 28)
+flyBtn.Position = UDim2.new(0, 10, 0, 120)
+flyBtn.Text = "Bật/Tắt Bay (Fly)"
+flyBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 180)
+flyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+flyBtn.Font = Enum.Font.SourceSansBold
+flyBtn.TextSize = 14
+flyBtn.Parent = frame
+Instance.new("UICorner", flyBtn).CornerRadius = UDim.new(0, 6)
+
+flyBtn.MouseButton1Click:Connect(function()
+	toggleFlight(not flying)
+	flyBtn.BackgroundColor3 = flying and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(60, 120, 180)
+end)
+
+-- Nút Xuyên Tường
+local noclipBtn = Instance.new("TextButton")
+noclipBtn.Size = UDim2.new(1, -20, 0, 28)
+noclipBtn.Position = UDim2.new(0, 10, 0, 156)
+noclipBtn.Text = "Bật/Tắt Xuyên Tường"
+noclipBtn.BackgroundColor3 = Color3.fromRGB(120, 60, 180)
+noclipBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+noclipBtn.Font = Enum.Font.SourceSansBold
+noclipBtn.TextSize = 14
+noclipBtn.Parent = frame
+Instance.new("UICorner", noclipBtn).CornerRadius = UDim.new(0, 6)
+
+noclipBtn.MouseButton1Click:Connect(function()
+	noclip = not noclip
+	noclipBtn.BackgroundColor3 = noclip and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(120, 60, 180)
+end)
+
+-- Nút Giảm Lag
+local lagBtn = Instance.new("TextButton")
+lagBtn.Size = UDim2.new(1, -20, 0, 28)
+lagBtn.Position = UDim2.new(0, 10, 0, 192)
+lagBtn.Text = "Giảm Lag (Lag Fix)"
+lagBtn.BackgroundColor3 = Color3.fromRGB(180, 140, 60)
+lagBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+lagBtn.Font = Enum.Font.SourceSansBold
+lagBtn.TextSize = 14
+lagBtn.Parent = frame
+Instance.new("UICorner", lagBtn).CornerRadius = UDim.new(0, 6)
+
+lagBtn.MouseButton1Click:Connect(function()
+	for _, desc in ipairs(Workspace:GetDescendants()) do
+		if desc:IsA("BasePart") then desc.CastShadow = false end
+	end
+	print("[MrDon] Đã giảm lag thành công.")
+end)
+
+print("[MrDon] Script Madila đầy đủ tính năng ESP & Lồng Sắt đã sẵn sàng!")
