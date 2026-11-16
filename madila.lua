@@ -1,5 +1,5 @@
 -- ============================================================================
--- SCRIPT CHẠY QUA LOADSTRING (Đã tối ưu hóa cho Client Executor)
+-- SCRIPT HOÀN CHỈNH CHO GITHUB (MADILA.LUA) - CLIENT EXECUTOR READY
 -- ============================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -11,21 +11,22 @@ local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
--- Đảm bảo có RemoteEvent trên ReplicatedStorage để tương thích
+-- 1. Xử lý RemoteEvent tự động (Hỗ trợ cả Local Server hoặc Test công khai)
 local cageEvent = ReplicatedStorage:FindFirstChild("CagePlayerEvent")
-if not cageEvent then
+if not cageEvent and RunService:IsStudio() then
+	-- Tự tạo RemoteEvent phòng hờ nếu test trong Studio
 	cageEvent = Instance.new("RemoteEvent")
 	cageEvent.Name = "CagePlayerEvent"
 	cageEvent.Parent = ReplicatedStorage
 end
 
--- States
+-- 2. States (Trạng thái tính năng)
 local flying = false
 local noclip = false
 local speed = 50
 local bg, bv
 
--- 1. Lag Reduction (Giảm lag)
+-- 3. Lag Reduction (Giảm lag tối ưu)
 local function applyLagReduction()
 	for _, descendant in ipairs(Workspace:GetDescendants()) do
 		if descendant:IsA("BasePart") then
@@ -38,10 +39,10 @@ local function applyLagReduction()
 	pcall(function()
 		UserSettings():GetService("UserGameSettings").SavedQualityLevel = Enum.SavedQualitySetting.Level1
 	end)
-	print("[MrDon] Đã giảm lag thành công.")
+	print("[MrDon] Đã tối ưu giảm lag thành công.")
 end
 
--- 2. Flight Toggle (Bay)
+-- 4. Flight Toggle (Tính năng Bay)
 local function toggleFlight(active)
 	flying = active
 	local hum = character:FindFirstChildOfClass("Humanoid")
@@ -80,7 +81,7 @@ local function toggleFlight(active)
 	end
 end
 
--- 3. Noclip Loop (Xuyên tường)
+-- 5. Noclip Loop (Xuyên tường)
 RunService.Stepped:Connect(function()
 	if noclip and character then
 		for _, part in ipairs(character:GetDescendants()) do
@@ -89,14 +90,13 @@ RunService.Stepped:Connect(function()
 	end
 end)
 
--- 4. GUI Setup (Tạo giao diện hiển thị trên màn hình)
--- Xóa GUI cũ nếu lỡ chạy nhiều lần
-if player.PlayerGui:FindFirstChild("UnifiedAdminGui") then
-	player.PlayerGui.UnifiedAdminGui:Destroy()
+-- 6. Giao diện người dùng (GUI Setup) - Đảm bảo hiện nút bấm ngay lập tức
+if player.PlayerGui:FindFirstChild("MadilaAdminGui") then
+	player.PlayerGui.MadilaAdminGui:Destroy()
 end
 
 local screenGui = Instance.new("ScreenGui")
-screenGui.Name = "UnifiedAdminGui"
+screenGui.Name = "MadilaAdminGui"
 screenGui.ResetOnSpawn = false
 screenGui.Parent = player:WaitForChild("PlayerGui")
 
@@ -140,9 +140,15 @@ local btnCorner = Instance.new("UICorner")
 btnCorner.CornerRadius = UDim.new(0, 6)
 btnCorner.Parent = actionBtn
 
+-- Xử lý sự kiện bấm nút nhốt lồng sắt
 actionBtn.MouseButton1Click:Connect(function()
 	if textBox.Text ~= "" then
-		cageEvent:FireServer(textBox.Text)
+		if cageEvent then
+			cageEvent:FireServer(textBox.Text)
+			print("[MrDon] Đã gửi yêu cầu nhốt lồng tới:", textBox.Text)
+		else
+			warn("[MrDon] Không tìm thấy sự kiện mạng (RemoteEvent) trên server.")
+		end
 	end
 end)
 
@@ -156,7 +162,7 @@ infoLabel.Font = Enum.Font.SourceSans
 infoLabel.TextSize = 13
 infoLabel.Parent = frame
 
--- Keybindings
+-- Phím tắt điều khiển nhanh
 UserInputService.InputBegan:Connect(function(input, gameProcessed)
 	if gameProcessed then return end
 	if input.KeyCode == Enum.KeyCode.F then
@@ -165,8 +171,8 @@ UserInputService.InputBegan:Connect(function(input, gameProcessed)
 		noclip = not noclip
 		print("[MrDon] Noclip:", noclip)
 	elseif input.KeyCode == Enum.KeyCode.L then
-        applyLagReduction()
+		applyLagReduction()
 	end
 end)
 
-print("[MrDon] Giao diện Admin Utility đã được khởi tạo thành công!")
+print("[MrDon] Script madila.lua đã khởi tạo giao diện thành công!")
