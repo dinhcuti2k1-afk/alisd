@@ -1,5 +1,5 @@
 -- ============================================================================
--- SCRIPT MADILA.LUA - SỰ KIỆN NÚI LỬA & NHẬT THỰC (CLIENT-SIDE) + ESP + FLY
+-- SCRIPT TỔNG HỢP: MADILA.LUA (VOLCANO EXECUTOR CLIENT-SIDE READY)
 -- ============================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -36,7 +36,7 @@ local function toggleVolcano(active)
 					math.random(-50, 50)/100
 				)
 				
-				-- Tạo hạt lửa rơi xung quanh đầu nhân vật
+				-- Tạo thiên thạch/hạt lửa rơi xung quanh nhân vật
 				if character and humanoidRootPart then
 					local part = Instance.new("Part")
 					part.Size = Vector3.new(1.5, 1.5, 1.5)
@@ -48,8 +48,6 @@ local function toggleVolcano(active)
 					part.CanCollide = false
 					part.Parent = Workspace
 					
-					-- Tự hủy sau 3 giây để chống lag
-					Debris:AddItem = nil
 					task.delay(3, function()
 						if part then part:Destroy() end
 					end)
@@ -65,13 +63,12 @@ end
 -- 2. Sự kiện Nhật Thực (Solar Eclipse Effect)
 local originalClockTime = Lighting.ClockTime
 local originalBrightness = Lighting.Brightness
-local originalAtmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 
 local function toggleEclipse(active)
 	eclipseActive = active
 	if eclipseActive then
 		print("[MrDon] Sự kiện Nhật Thực bắt đầu!")
-		Lighting.ClockTime = 0 -- Đặt giờ thành nửa đêm
+		Lighting.ClockTime = 0
 		Lighting.Brightness = 0.1
 		Lighting.Ambient = Color3.fromRGB(20, 20, 30)
 		Lighting.OutdoorAmbient = Color3.fromRGB(10, 10, 20)
@@ -168,7 +165,7 @@ RunService.Stepped:Connect(function()
 	end
 end)
 
--- 6. Giao diện điều khiển (UI)
+-- 6. Giao diện điều khiển (UI) - Đặt góc trái gọn gàng
 if player.PlayerGui:FindFirstChild("MadilaAdminGui") then
 	player.PlayerGui.MadilaAdminGui:Destroy()
 end
@@ -180,7 +177,7 @@ screenGui.Parent = player:WaitForChild("PlayerGui")
 
 local frame = Instance.new("Frame")
 frame.Size = UDim2.new(0, 240, 0, 260)
-frame.Position = UDim2.new(0, 20, 0.5, -130)
+frame.Position = UDim2.new(0, 20, 0.4, 0) -- Đẩy xuống giữa màn hình tránh bị che nút game
 frame.BackgroundColor3 = Color3.fromRGB(30, 32, 36)
 frame.BorderSizePixel = 0
 frame.Parent = screenGui
@@ -188,7 +185,6 @@ frame.Parent = screenGui
 Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
 
 local titleLabel = Instance.new("TextLabel")
-titlePanel = titleLabel
 titleLabel.Size = UDim2.new(1, 0, 0, 25)
 titleLabel.BackgroundTransparency = 1
 titleLabel.Text = "--- MRDON ADMIN PANEL ---"
@@ -197,108 +193,54 @@ titleLabel.Font = Enum.Font.SourceSansBold
 titleLabel.TextSize = 13
 titleLabel.Parent = frame
 
--- Nút Sự Kiện Núi Lửa
-local volcanoBtn = Instance.new("TextButton")
-volcanoBtn.Size = UDim2.new(1, -20, 0, 28)
-volcanoBtn.Position = UDim2.new(0, 10, 0, 30)
-volcanoBtn.Text = "Bật/Tắt Sự Kiện Núi Lửa"
-volcanoBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
-volcanoBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-volcanoBtn.Font = Enum.Font.SourceSansBold
-volcanoBtn.TextSize = 14
-volcanoBtn.Parent = frame
-Instance.new("UICorner", volcanoBtn).CornerRadius = UDim.new(0, 6)
+-- Tạo nút bấm hàng loạt
+local function createButton(name, posY, color, callback)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(1, -20, 0, 28)
+	btn.Position = UDim2.new(0, 10, 0, posY)
+	btn.Text = name
+	btn.BackgroundColor3 = color
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.Font = Enum.Font.SourceSansBold
+	btn.TextSize = 14
+	btn.Parent = frame
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+	
+	btn.MouseButton1Click:Connect(callback)
+	return btn
+end
 
-volcanoBtn.MouseButton1Click:Connect(function()
+-- Khởi tạo các nút trên UI
+local volcanoBtn = createButton("Bật/Tắt Sự Kiện Núi Lửa", 30, Color3.fromRGB(180, 60, 60), function()
 	toggleVolcano(not volcanoActive)
 	volcanoBtn.BackgroundColor3 = volcanoActive and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(180, 60, 60)
 end)
 
--- Nút Sự Kiện Nhật Thực
-local eclipseBtn = Instance.new("TextButton")
-eclipseBtn.Size = UDim2.new(1, -20, 0, 28)
-eclipseBtn.Position = UDim2.new(0, 10, 0, 66)
-eclipseBtn.Text = "Bật/Tắt Sự Kiện Nhật Thực"
-eclipseBtn.BackgroundColor3 = Color3.fromRGB(80, 60, 140)
-eclipseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-eclipseBtn.Font = Enum.Font.SourceSansBold
-eclipseBtn.TextSize = 14
-eclipseBtn.Parent = frame
-Instance.new("UICorner", eclipseBtn).CornerRadius = UDim.new(0, 6)
-
-eclipseBtn.MouseButton1Click:Connect(function()
+local eclipseBtn = createButton("Bật/Tắt Sự Kiện Nhật Thực", 66, Color3.fromRGB(80, 60, 140), function()
 	toggleEclipse(not eclipseActive)
 	eclipseBtn.BackgroundColor3 = eclipseActive and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(80, 60, 140)
 end)
 
--- Nút Định Vị (ESP)
-local espBtn = Instance.new("TextButton")
-espBtn.Size = UDim2.new(1, -20, 0, 28)
-espBtn.Position = UDim2.new(0, 10, 0, 102)
-espBtn.Text = "Bật/Tắt Định Vị (ESP Bot/Player)"
-espBtn.BackgroundColor3 = Color3.fromRGB(60, 140, 180)
-espBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-espBtn.Font = Enum.Font.SourceSansBold
-espBtn.TextSize = 14
-espBtn.Parent = frame
-Instance.new("UICorner", espBtn).CornerRadius = UDim.new(0, 6)
-
-espBtn.MouseButton1Click:Connect(function()
+local espBtn = createButton("Bật/Tắt Định Vị (ESP Bot/Player)", 102, Color3.fromRGB(60, 140, 180), function()
 	toggleESP(not espEnabled)
 	espBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(60, 140, 180)
 end)
 
--- Nút Bay
-local flyBtn = Instance.new("TextButton")
-flyBtn.Size = UDim2.new(1, -20, 0, 28)
-flyBtn.Position = UDim2.new(0, 10, 0, 138)
-flyBtn.Text = "Bật/Tắt Bay (Fly)"
-flyBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 180)
-flyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-flyBtn.Font = Enum.Font.SourceSansBold
-flyBtn.TextSize = 14
-flyBtn.Parent = frame
-Instance.new("UICorner", flyBtn).CornerRadius = UDim.new(0, 6)
-
-flyBtn.MouseButton1Click:Connect(function()
+local flyBtn = createButton("Bật/Tắt Bay (Fly)", 138, Color3.fromRGB(60, 120, 180), function()
 	toggleFlight(not flying)
 	flyBtn.BackgroundColor3 = flying and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(60, 120, 180)
 end)
 
--- Nút Xuyên Tường
-local noclipBtn = Instance.new("TextButton")
-noclipBtn.Size = UDim2.new(1, -20, 0, 28)
-noclipBtn.Position = UDim2.new(0, 10, 0, 174)
-noclipBtn.Text = "Bật/Tắt Xuyên Tường"
-noclipBtn.BackgroundColor3 = Color3.fromRGB(120, 60, 180)
-noclipBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-noclipBtn.Font = Enum.Font.SourceSansBold
-noclipBtn.TextSize = 14
-noclipBtn.Parent = frame
-Instance.new("UICorner", noclipBtn).CornerRadius = UDim.new(0, 6)
-
-noclipBtn.MouseButton1Click:Connect(function()
+local noclipBtn = createButton("Bật/Tắt Xuyên Tường", 174, Color3.fromRGB(120, 60, 180), function()
 	noclip = not noclip
 	noclipBtn.BackgroundColor3 = noclip and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(120, 60, 180)
 end)
 
--- Nút Giảm Lag
-local lagBtn = Instance.new("TextButton")
-lagBtn.Size = UDim2.new(1, -20, 0, 28)
-lagBtn.Position = UDim2.new(0, 10, 0, 210)
-lagBtn.Text = "Giảm Lag (Lag Fix)"
-lagBtn.BackgroundColor3 = Color3.fromRGB(180, 140, 60)
-lagBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-lagBtn.Font = Enum.Font.SourceSansBold
-lagBtn.TextSize = 14
-lagBtn.Parent = frame
-Instance.new("UICorner", lagBtn).CornerRadius = UDim.new(0, 6)
-
-lagBtn.MouseButton1Click:Connect(function()
+createButton("Giảm Lag (Lag Fix)", 210, Color3.fromRGB(180, 140, 60), function()
 	for _, desc in ipairs(Workspace:GetDescendants()) do
 		if desc:IsA("BasePart") then desc.CastShadow = false end
 	end
 	print("[MrDon] Đã giảm lag thành công.")
 end)
 
-print("[MrDon] Script Sự kiện Núi Lửa & Nhật Thực đã khởi chạy hoàn tất trên Volcano!")
+print("[MrDon] Code tổng hợp Madila.lua đã khởi chạy hoàn tất trên Volcano!")
