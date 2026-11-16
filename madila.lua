@@ -1,24 +1,15 @@
 -- ============================================================================
--- SCRIPT MADILA.LUA - ĐÃ SỬA LỖI NHỐT & BỔ SUNG ĐỊNH VỊ (ESP) PLAYER/BOT
+-- SCRIPT MADILA.LUA - ĐÓNG BĂNG MỤC TIÊU (FREEZE) + ESP + FLY + NOCLIP
 -- ============================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local Workspace = game:GetService("Workspace")
 local Camera = Workspace.CurrentCamera
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
-
--- 1. Xử lý RemoteEvent cho lồng sắt
-local cageEvent = ReplicatedStorage:FindFirstChild("CagePlayerEvent")
-if not cageEvent then
-	cageEvent = Instance.new("RemoteEvent")
-	cageEvent.Name = "CagePlayerEvent"
-	cageEvent.Parent = ReplicatedStorage
-end
 
 -- Trạng thái
 local flying = false
@@ -27,20 +18,19 @@ local espEnabled = false
 local speed = 50
 local bg, bv
 local espObjects = {}
+local frozenTargets = {} -- Lưu trạng thái đóng băng từng mục tiêu
 
--- Tìm kiếm player hoặc NPC/Bot chính xác hơn
+-- 1. Tìm kiếm Player hoặc NPC/Bot theo tên
 local function findTargetByName(query)
 	if not query or query == "" then return nil end
 	local lowerQ = string.lower(query)
 	
-	-- Tìm trong Players trước
 	for _, p in ipairs(Players:GetPlayers()) do
 		if string.find(string.lower(p.Name), lowerQ) or string.find(string.lower(p.DisplayName), lowerQ) then
 			return p.Character
 		end
 	end
 	
-	-- Tìm trong Workspace (Dành cho Bot / NPC)
 	for _, obj in ipairs(Workspace:GetChildren()) do
 		if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
 			if string.find(string.lower(obj.Name), lowerQ) then
@@ -51,7 +41,43 @@ local function findTargetByName(query)
 	return nil
 end
 
--- 2. Tính năng Định vị (ESP) Player và Bot
+-- 2. Tính năng Đóng Băng / Mở Khóa di chuyển mục tiêu
+local function toggleFreezeTarget(targetChar)
+	if not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then
+		warn("[MrDon] Không tìm thấy mục tiêu để đóng băng!")
+		return false
+	end
+
+	local hrp = targetChar.HumanoidRootPart
+	local hum = targetChar:FindFirstChildOfClass("Humanoid")
+	local isCurrentlyFrozen = frozenTargets[targetChar] == true
+
+	if not isCurrentlyFrozen then
+		-- Đóng băng: Neo cứng vị trí và khóa tốc độ
+		frozenTargets[targetChar] = true
+		hrp.Anchored = true
+		hrp.AssemblyLinearVelocity = Vector3.zero
+		hrp.AssemblyAngularVelocity = Vector3.zero
+		if hum then
+			hum.WalkSpeed = 0
+			hum.JumpPower = 0
+		end
+		print("[MrDon] Đã đóng băng mục tiêu:", targetChar.Name)
+		return true
+	else
+		-- Mở khóa: Khôi phục trạng thái di chuyển
+		frozenTargets[targetChar] = nil
+		hrp.Anchored = false
+		if hum then
+			hum.WalkSpeed = 16
+			hum.JumpPower = 50
+		end
+		print("[MrDon] Đã mở khóa di chuyển cho:", targetChar.Name)
+		return false
+	end
+end
+
+-- 3. Tính năng Định vị (ESP) Player và Bot
 local function toggleESP(active)
 	espEnabled = active
 	if not espEnabled then
@@ -65,14 +91,11 @@ end
 RunService.RenderStepped:Connect(function()
 	if not espEnabled then return end
 	
-	-- Quét toàn bộ Player và NPC có Humanoid trong Workspace
 	for _, obj in ipairs(Workspace:GetChildren()) do
 		if obj:IsA("Model") and obj:FindFirstChild("HumanoidRootPart") and obj:FindFirstChild("Humanoid") then
 			if obj ~= player.Character then
 				local hrp = obj.HumanoidRootPart
-				local existingGui = hrp:FindFirstChild("EspTag")
-				
-				if not existingGui then
+				if not hrp:FindFirstChild("EspTag") then
 					local billboard = Instance.new("BillboardGui")
 					billboard.Name = "EspTag"
 					billboard.Size = UDim2.new(0, 100, 0, 40)
@@ -94,58 +117,6 @@ RunService.RenderStepped:Connect(function()
 			end
 		end
 	end
-end)
-
--- 3. Tạo lồng sắt trực tiếp tại Client (Khắc phục hoàn toàn lỗi không nhận lệnh server)
-local function spawnCageAtTarget(targetChar)
-	if not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then
-		warn("[MrDon] Không tìm thấy mục tiêu để nhốt!")
-		return
-	end
-	
-	local targetHRP = targetChar.HumanoidRootPart
-	local centerCFrame = targetHRP.CFrame
-	
-	local cageModel = Instance.new("Model")
-	cageModel.Name = "IronCage_Client"
-	
-	local size = 8
-	local barThickness = 0.4
-	local height = 9
-	local barSpacing = 1.6
-	
-	local function createPart(partSize, offsetCFrame)
-		local p = Instance.new("Part")
-		p.Size = partSize
-		p.CFrame = centerCFrame * offsetCFrame
-		p.Anchored = true
-		p.CanCollide = true
-		p.Material = Enum.Material.CorrodedMetal
-		p.Color = Color3.fromRGB(70, 75, 80)
-		p.Parent = cageModel
-		return p
-	end
-	
-	-- Sàn và Trần lồng
-	createPart(Vector3.new(size, barThickness, size), CFrame.new(0, -height / 2, 0))
-	createPart(Vector3.new(size, barThickness, size), CFrame.new(0, height / 2, 0))
-	
-	-- Các thanh sắt xung quanh
-	local halfSize = (size / 2) - (barThickness / 2)
-	for offset = -halfSize, halfSize, barSpacing do
-		createPart(Vector3.new(barThickness, height, barThickness), CFrame.new(offset, 0, halfSize))
-		createPart(Vector3.new(barThickness, height, barThickness), CFrame.new(offset, 0, -halfSize))
-		createPart(Vector3.new(barThickness, height, barThickness), CFrame.new(halfSize, 0, offset))
-		createPart(Vector3.new(barThickness, height, barThickness), CFrame.new(-halfSize, 0, offset))
-	end
-	
-	cageModel.Parent = Workspace
-	print("[MrDon] Đã nhốt thành công mục tiêu vào lồng sắt!")
-end
-
--- Lắng nghe sự kiện mạng nếu chơi online nhiều người
-cageEvent.OnClientEvent:Connect(function(targetChar)
-	spawnCageAtTarget(targetChar)
 end)
 
 -- 4. Tính năng Bay (Fly)
@@ -181,7 +152,7 @@ local function toggleFlight(active)
 	end
 end
 
--- Xuyên tường
+-- 5. Xuyên tường (Noclip)
 RunService.Stepped:Connect(function()
 	if noclip and character then
 		for _, p in ipairs(character:GetDescendants()) do
@@ -190,7 +161,7 @@ RunService.Stepped:Connect(function()
 	end
 end)
 
--- 5. Giao diện điều khiển (UI)
+-- 6. Giao diện điều khiển (UI)
 if player.PlayerGui:FindFirstChild("MadilaAdminGui") then
 	player.PlayerGui.MadilaAdminGui:Destroy()
 end
@@ -221,22 +192,23 @@ textBox.TextSize = 14
 textBox.Parent = frame
 Instance.new("UICorner", textBox).CornerRadius = UDim.new(0, 6)
 
--- Nút Nhốt Lồng
-local cageBtn = Instance.new("TextButton")
-cageBtn.Size = UDim2.new(1, -20, 0, 28)
-cageBtn.Position = UDim2.new(0, 10, 0, 48)
-cageBtn.Text = "Nhốt Lồng Sắt Mục Tiêu"
-cageBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
-cageBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-cageBtn.Font = Enum.Font.SourceSansBold
-cageBtn.TextSize = 14
-cageBtn.Parent = frame
-Instance.new("UICorner", cageBtn).CornerRadius = UDim.new(0, 6)
+-- Nút Đóng Băng / Mở Khóa
+local freezeBtn = Instance.new("TextButton")
+freezeBtn.Size = UDim2.new(1, -20, 0, 28)
+freezeBtn.Position = UDim2.new(0, 10, 0, 48)
+freezeBtn.Text = "Đóng Băng / Mở Khóa Mục Tiêu"
+freezeBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+freezeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+freezeBtn.Font = Enum.Font.SourceSansBold
+freezeBtn.TextSize = 14
+freezeBtn.Parent = frame
+Instance.new("UICorner", freezeBtn).CornerRadius = UDim.new(0, 6)
 
-cageBtn.MouseButton1Click:Connect(function()
+freezeBtn.MouseButton1Click:Connect(function()
 	local targetChar = findTargetByName(textBox.Text)
 	if targetChar then
-		spawnCageAtTarget(targetChar)
+		local isFrozen = toggleFreezeTarget(targetChar)
+		freezeBtn.BackgroundColor3 = isFrozen and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(180, 60, 60)
 	else
 		warn("[MrDon] Không tìm thấy tên mục tiêu này!")
 	end
@@ -312,4 +284,4 @@ lagBtn.MouseButton1Click:Connect(function()
 	print("[MrDon] Đã giảm lag thành công.")
 end)
 
-print("[MrDon] Script Madila đầy đủ tính năng ESP & Lồng Sắt đã sẵn sàng!")
+print("[MrDon] Script Madila (Freeze + ESP) đã khởi chạy thành công!")
