@@ -1,93 +1,86 @@
 -- ============================================================================
--- SCRIPT MADILA.LUA - ĐÓNG BĂNG TOÀN DIỆN (FORCE POSITION LOCK + ESP)
+-- SCRIPT MADILA.LUA - SỰ KIỆN NÚI LỬA & NHẬT THỰC (CLIENT-SIDE) + ESP + FLY
 -- ============================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
+local Lighting = game:GetService("Lighting")
 local Camera = Workspace.CurrentCamera
 
 local player = Players.LocalPlayer
 local character = player.Character or player.CharacterAdded:Wait()
 local humanoidRootPart = character:WaitForChild("HumanoidRootPart")
 
--- Trạng thái
+-- Trạng thái tính năng
 local flying = false
 local noclip = false
 local espEnabled = false
+local volcanoActive = false
+local eclipseActive = false
 local speed = 50
 local bg, bv
 local espObjects = {}
-local frozenTargets = {} -- Lưu trữ danh sách mục tiêu đang bị khóa tọa độ
 
--- 1. Tìm kiếm Player hoặc NPC/Bot theo tên
-local function findTargetByName(query)
-	if not query or query == "" then return nil end
-	local lowerQ = string.lower(query)
-	
-	for _, p in ipairs(Players:GetPlayers()) do
-		if string.find(string.lower(p.Name), lowerQ) or string.find(string.lower(p.DisplayName), lowerQ) then
-			return p.Character
-		end
-	end
-	
-	for _, obj in ipairs(Workspace:GetChildren()) do
-		if obj:IsA("Model") and obj:FindFirstChild("Humanoid") and obj:FindFirstChild("HumanoidRootPart") then
-			if string.find(string.lower(obj.Name), lowerQ) then
-				return obj
+-- 1. Sự kiện Núi Lửa (Volcano Eruption Effect)
+local function toggleVolcano(active)
+	volcanoActive = active
+	if volcanoActive then
+		print("[MrDon] Sự kiện Núi Lửa đã bắt đầu!")
+		task.spawn(function()
+			while volcanoActive do
+				-- Rung lắc camera nhẹ
+				Camera.CFrame = Camera.CFrame * CFrame.new(
+					math.random(-50, 50)/100, 
+					math.random(-50, 50)/100, 
+					math.random(-50, 50)/100
+				)
+				
+				-- Tạo hạt lửa rơi xung quanh đầu nhân vật
+				if character and humanoidRootPart then
+					local part = Instance.new("Part")
+					part.Size = Vector3.new(1.5, 1.5, 1.5)
+					part.Shape = Enum.PartType.Ball
+					part.BrickColor = BrickColor.new("Bright red")
+					part.Material = Enum.Material.Neon
+					part.Position = humanoidRootPart.Position + Vector3.new(math.random(-40, 40), 50, math.random(-40, 40))
+					part.Velocity = Vector3.new(0, -60, 0)
+					part.CanCollide = false
+					part.Parent = Workspace
+					
+					-- Tự hủy sau 3 giây để chống lag
+					Debris:AddItem = nil
+					task.delay(3, function()
+						if part then part:Destroy() end
+					end)
+				end
+				task.wait(0.15)
 			end
-		end
+		end)
+	else
+		print("[MrDon] Đã tắt sự kiện Núi Lửa.")
 	end
-	return nil
 end
 
--- 2. Vòng lặp cưỡng chế vị trí (Force Lock Loop) - Ngăn mục tiêu dịch chuyển
-RunService.Heartbeat:Connect(function()
-	for targetChar, lockedCFrame in pairs(frozenTargets) do
-		if targetChar and targetChar.Parent and targetChar:FindFirstChild("HumanoidRootPart") then
-			local hrp = targetChar.HumanoidRootPart
-			local hum = targetChar:FindFirstChildOfClass("Humanoid")
-			
-			-- Liên tục ép vị trí và hướng về chỗ bị khóa, vô hiệu hóa mọi lệnh chạy
-			hrp.CFrame = lockedCFrame
-			hrp.AssemblyLinearVelocity = Vector3.zero
-			hrp.AssemblyAngularVelocity = Vector3.zero
-			
-			if hum then
-				hum.WalkSpeed = 0
-				hum.JumpPower = 0
-				hum.PlatformStand = true
-			end
-		else
-			-- Xóa khỏi danh sách nếu mục tiêu thoát hoặc biến mất
-			frozenTargets[targetChar] = nil
-		end
-	end
-end)
+-- 2. Sự kiện Nhật Thực (Solar Eclipse Effect)
+local originalClockTime = Lighting.ClockTime
+local originalBrightness = Lighting.Brightness
+local originalAtmosphere = Lighting:FindFirstChildOfClass("Atmosphere")
 
-local function toggleFreezeTarget(targetChar)
-	if not targetChar or not targetChar:FindFirstChild("HumanoidRootPart") then
-		warn("[MrDon] Không tìm thấy mục tiêu để đóng băng!")
-		return false
-	end
-
-	local hrp = targetChar.HumanoidRootPart
-	if not frozenTargets[targetChar] then
-		-- Bật đóng băng và lưu lại tọa độ cố định tại thời điểm bấm
-		frozenTargets[targetChar] = hrp.CFrame
-		print("[MrDon] Đã khóa cứng toàn diện mục tiêu:", targetChar.Name)
-		return true
+local function toggleEclipse(active)
+	eclipseActive = active
+	if eclipseActive then
+		print("[MrDon] Sự kiện Nhật Thực bắt đầu!")
+		Lighting.ClockTime = 0 -- Đặt giờ thành nửa đêm
+		Lighting.Brightness = 0.1
+		Lighting.Ambient = Color3.fromRGB(20, 20, 30)
+		Lighting.OutdoorAmbient = Color3.fromRGB(10, 10, 20)
 	else
-		-- Tắt đóng băng, trả lại trạng thái cho nhân vật
-		local hum = targetChar:FindFirstChildOfClass("Humanoid")
-		if hum then
-			hum.WalkSpeed = 16
-			hum.JumpPower = 50
-			hum.PlatformStand = false
-		end
-		frozenTargets[targetChar] = nil
-		print("[MrDon] Đã mở khóa cho:", targetChar.Name)
-		return false
+		print("[MrDon] Khôi phục lại ánh sáng ban đầu.")
+		Lighting.ClockTime = originalClockTime
+		Lighting.Brightness = originalBrightness
+		Lighting.Ambient = Color3.fromRGB(128, 128, 128)
+		Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
 	end
 end
 
@@ -121,7 +114,7 @@ RunService.RenderStepped:Connect(function()
 					textLabel.Size = UDim2.new(1, 0, 1, 0)
 					textLabel.BackgroundTransparency = 1
 					textLabel.Text = obj.Name
-					textLabel.TextColor3 = Color3.fromRGB(0, 255, 255)
+					textLabel.TextColor3 = Color3.fromRGB(255, 100, 0)
 					textLabel.TextScaled = true
 					textLabel.Font = Enum.Font.SourceSansBold
 					textLabel.Parent = billboard
@@ -186,52 +179,62 @@ screenGui.ResetOnSpawn = false
 screenGui.Parent = player:WaitForChild("PlayerGui")
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 240, 0, 230)
-frame.Position = UDim2.new(0, 20, 0.5, -115)
+frame.Size = UDim2.new(0, 240, 0, 260)
+frame.Position = UDim2.new(0, 20, 0.5, -130)
 frame.BackgroundColor3 = Color3.fromRGB(30, 32, 36)
 frame.BorderSizePixel = 0
 frame.Parent = screenGui
 
 Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
 
-local textBox = Instance.new("TextBox")
-textBox.Size = UDim2.new(1, -20, 0, 30)
-textBox.Position = UDim2.new(0, 10, 0, 10)
-textBox.PlaceholderText = "Nhập tên Player hoặc Bot..."
-textBox.Text = ""
-textBox.BackgroundColor3 = Color3.fromRGB(45, 48, 54)
-textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
-textBox.Font = Enum.Font.SourceSans
-textBox.TextSize = 14
-textBox.Parent = frame
-Instance.new("UICorner", textBox).CornerRadius = UDim.new(0, 6)
+local titleLabel = Instance.new("TextLabel")
+titlePanel = titleLabel
+titleLabel.Size = UDim2.new(1, 0, 0, 25)
+titleLabel.BackgroundTransparency = 1
+titleLabel.Text = "--- MRDON ADMIN PANEL ---"
+titleLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
+titleLabel.Font = Enum.Font.SourceSansBold
+titleLabel.TextSize = 13
+titleLabel.Parent = frame
 
--- Nút Đóng Băng Cưỡng Chế
-local freezeBtn = Instance.new("TextButton")
-freezeBtn.Size = UDim2.new(1, -20, 0, 28)
-freezeBtn.Position = UDim2.new(0, 10, 0, 48)
-freezeBtn.Text = "Đóng Băng Cưỡng Chế"
-freezeBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
-freezeBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
-freezeBtn.Font = Enum.Font.SourceSansBold
-freezeBtn.TextSize = 14
-freezeBtn.Parent = frame
-Instance.new("UICorner", freezeBtn).CornerRadius = UDim.new(0, 6)
+-- Nút Sự Kiện Núi Lửa
+local volcanoBtn = Instance.new("TextButton")
+volcanoBtn.Size = UDim2.new(1, -20, 0, 28)
+volcanoBtn.Position = UDim2.new(0, 10, 0, 30)
+volcanoBtn.Text = "Bật/Tắt Sự Kiện Núi Lửa"
+volcanoBtn.BackgroundColor3 = Color3.fromRGB(180, 60, 60)
+volcanoBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+volcanoBtn.Font = Enum.Font.SourceSansBold
+volcanoBtn.TextSize = 14
+volcanoBtn.Parent = frame
+Instance.new("UICorner", volcanoBtn).CornerRadius = UDim.new(0, 6)
 
-freezeBtn.MouseButton1Click:Connect(function()
-	local targetChar = findTargetByName(textBox.Text)
-	if targetChar then
-		local isFrozen = toggleFreezeTarget(targetChar)
-		freezeBtn.BackgroundColor3 = isFrozen and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(180, 60, 60)
-	else
-		warn("[MrDon] Không tìm thấy tên mục tiêu này!")
-	end
+volcanoBtn.MouseButton1Click:Connect(function()
+	toggleVolcano(not volcanoActive)
+	volcanoBtn.BackgroundColor3 = volcanoActive and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(180, 60, 60)
+end)
+
+-- Nút Sự Kiện Nhật Thực
+local eclipseBtn = Instance.new("TextButton")
+eclipseBtn.Size = UDim2.new(1, -20, 0, 28)
+eclipseBtn.Position = UDim2.new(0, 10, 0, 66)
+eclipseBtn.Text = "Bật/Tắt Sự Kiện Nhật Thực"
+eclipseBtn.BackgroundColor3 = Color3.fromRGB(80, 60, 140)
+eclipseBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+eclipseBtn.Font = Enum.Font.SourceSansBold
+eclipseBtn.TextSize = 14
+eclipseBtn.Parent = frame
+Instance.new("UICorner", eclipseBtn).CornerRadius = UDim.new(0, 6)
+
+eclipseBtn.MouseButton1Click:Connect(function()
+	toggleEclipse(not eclipseActive)
+	eclipseBtn.BackgroundColor3 = eclipseActive and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(80, 60, 140)
 end)
 
 -- Nút Định Vị (ESP)
 local espBtn = Instance.new("TextButton")
 espBtn.Size = UDim2.new(1, -20, 0, 28)
-espBtn.Position = UDim2.new(0, 10, 0, 84)
+espBtn.Position = UDim2.new(0, 10, 0, 102)
 espBtn.Text = "Bật/Tắt Định Vị (ESP Bot/Player)"
 espBtn.BackgroundColor3 = Color3.fromRGB(60, 140, 180)
 espBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -248,7 +251,7 @@ end)
 -- Nút Bay
 local flyBtn = Instance.new("TextButton")
 flyBtn.Size = UDim2.new(1, -20, 0, 28)
-flyBtn.Position = UDim2.new(0, 10, 0, 120)
+flyBtn.Position = UDim2.new(0, 10, 0, 138)
 flyBtn.Text = "Bật/Tắt Bay (Fly)"
 flyBtn.BackgroundColor3 = Color3.fromRGB(60, 120, 180)
 flyBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -265,7 +268,7 @@ end)
 -- Nút Xuyên Tường
 local noclipBtn = Instance.new("TextButton")
 noclipBtn.Size = UDim2.new(1, -20, 0, 28)
-noclipBtn.Position = UDim2.new(0, 10, 0, 156)
+noclipBtn.Position = UDim2.new(0, 10, 0, 174)
 noclipBtn.Text = "Bật/Tắt Xuyên Tường"
 noclipBtn.BackgroundColor3 = Color3.fromRGB(120, 60, 180)
 noclipBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -282,7 +285,7 @@ end)
 -- Nút Giảm Lag
 local lagBtn = Instance.new("TextButton")
 lagBtn.Size = UDim2.new(1, -20, 0, 28)
-lagBtn.Position = UDim2.new(0, 10, 0, 192)
+lagBtn.Position = UDim2.new(0, 10, 0, 210)
 lagBtn.Text = "Giảm Lag (Lag Fix)"
 lagBtn.BackgroundColor3 = Color3.fromRGB(180, 140, 60)
 lagBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -298,4 +301,4 @@ lagBtn.MouseButton1Click:Connect(function()
 	print("[MrDon] Đã giảm lag thành công.")
 end)
 
-print("[MrDon] Script Madila (Force Lock + ESP) đã sẵn sàng!")
+print("[MrDon] Script Sự kiện Núi Lửa & Nhật Thực đã khởi chạy hoàn tất trên Volcano!")
