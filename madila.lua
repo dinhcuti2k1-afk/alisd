@@ -1,11 +1,12 @@
 -- ============================================================================
--- SCRIPT TỔNG HỢP: MADILA.LUA (VOLCANO EXECUTOR CLIENT-SIDE READY)
+-- SCRIPT TỔNG HỢP: MADILA.LUA (TÙY CHỈNH TỐC ĐỘ BAY + SỰ KIỆN + ESP + NOCLIP)
 -- ============================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
+local CoreGui = game:GetService("CoreGui")
 local Camera = Workspace.CurrentCamera
 
 local player = Players.LocalPlayer
@@ -22,6 +23,15 @@ local speed = 50
 local bg, bv
 local espObjects = {}
 
+-- Cập nhật lại nhân vật khi hồi sinh
+player.CharacterAdded:Connect(function(newChar)
+	character = newChar
+	humanoidRootPart = newChar:WaitForChild("HumanoidRootPart")
+	flying = false
+	if bg then bg:Destroy() bg = nil end
+	if bv then bv:Destroy() bv = nil end
+end)
+
 -- 1. Sự kiện Núi Lửa (Volcano Eruption Effect)
 local function toggleVolcano(active)
 	volcanoActive = active
@@ -29,14 +39,12 @@ local function toggleVolcano(active)
 		print("[MrDon] Sự kiện Núi Lửa đã bắt đầu!")
 		task.spawn(function()
 			while volcanoActive do
-				-- Rung lắc camera nhẹ
 				Camera.CFrame = Camera.CFrame * CFrame.new(
-					math.random(-50, 50)/100, 
-					math.random(-50, 50)/100, 
-					math.random(-50, 50)/100
+					math.random(-35, 35) / 100,
+					math.random(-35, 35) / 100,
+					math.random(-35, 35) / 100
 				)
-				
-				-- Tạo thiên thạch/hạt lửa rơi xung quanh nhân vật
+
 				if character and humanoidRootPart then
 					local part = Instance.new("Part")
 					part.Size = Vector3.new(1.5, 1.5, 1.5)
@@ -47,9 +55,11 @@ local function toggleVolcano(active)
 					part.Velocity = Vector3.new(0, -60, 0)
 					part.CanCollide = false
 					part.Parent = Workspace
-					
+
 					task.delay(3, function()
-						if part then part:Destroy() end
+						if part and part.Parent then
+							part:Destroy()
+						end
 					end)
 				end
 				task.wait(0.15)
@@ -63,6 +73,8 @@ end
 -- 2. Sự kiện Nhật Thực (Solar Eclipse Effect)
 local originalClockTime = Lighting.ClockTime
 local originalBrightness = Lighting.Brightness
+local originalAmbient = Lighting.Ambient
+local originalOutdoor = Lighting.OutdoorAmbient
 
 local function toggleEclipse(active)
 	eclipseActive = active
@@ -76,8 +88,8 @@ local function toggleEclipse(active)
 		print("[MrDon] Khôi phục lại ánh sáng ban đầu.")
 		Lighting.ClockTime = originalClockTime
 		Lighting.Brightness = originalBrightness
-		Lighting.Ambient = Color3.fromRGB(128, 128, 128)
-		Lighting.OutdoorAmbient = Color3.fromRGB(128, 128, 128)
+		Lighting.Ambient = originalAmbient
+		Lighting.OutdoorAmbient = originalOutdoor
 	end
 end
 
@@ -86,7 +98,9 @@ local function toggleESP(active)
 	espEnabled = active
 	if not espEnabled then
 		for _, billboard in pairs(espObjects) do
-			if billboard then billboard:Destroy() end
+			if billboard and billboard.Parent then
+				billboard:Destroy()
+			end
 		end
 		espObjects = {}
 	end
@@ -94,7 +108,7 @@ end
 
 RunService.RenderStepped:Connect(function()
 	if not espEnabled then return end
-	
+
 	for _, obj in ipairs(Workspace:GetChildren()) do
 		if obj:IsA("Model") and obj:FindFirstChild("HumanoidRootPart") and obj:FindFirstChild("Humanoid") then
 			if obj ~= player.Character then
@@ -106,7 +120,7 @@ RunService.RenderStepped:Connect(function()
 					billboard.StudsOffset = Vector3.new(0, 3, 0)
 					billboard.AlwaysOnTop = true
 					billboard.Parent = hrp
-					
+
 					local textLabel = Instance.new("TextLabel")
 					textLabel.Size = UDim2.new(1, 0, 1, 0)
 					textLabel.BackgroundTransparency = 1
@@ -115,7 +129,7 @@ RunService.RenderStepped:Connect(function()
 					textLabel.TextScaled = true
 					textLabel.Font = Enum.Font.SourceSansBold
 					textLabel.Parent = billboard
-					
+
 					espObjects[obj] = billboard
 				end
 			end
@@ -123,27 +137,35 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
--- 4. Tính năng Bay (Fly)
+-- 4. Tính năng Bay (Fly) - Hỗ trợ cập nhật tốc độ trực tiếp
 local function toggleFlight(active)
 	flying = active
+	if not character or not humanoidRootPart then return end
 	local hum = character:FindFirstChildOfClass("Humanoid")
+
 	if flying then
 		if hum then hum.PlatformStand = true end
-		bg = Instance.new("BodyGyro", humanoidRootPart)
+
+		bg = Instance.new("BodyGyro")
 		bg.MaxTorque = Vector3.new(400000, 400000, 400000)
 		bg.P = 20000
-		
-		bv = Instance.new("BodyVelocity", humanoidRootPart)
+		bg.Parent = humanoidRootPart
+
+		bv = Instance.new("BodyVelocity")
 		bv.MaxForce = Vector3.new(400000, 400000, 400000)
-		bv.Velocity = Vector3.new(0, 0, 0)
-		
+		bv.Velocity = Vector3.zero
+		bv.Parent = humanoidRootPart
+
 		task.spawn(function()
-			while flying and character and humanoidRootPart do
-				local moveDir = Vector3.new()
+			while flying and character and humanoidRootPart and bv and bg do
+				local moveDir = Vector3.zero
 				if UserInputService:IsKeyDown(Enum.KeyCode.W) then moveDir = moveDir + Camera.CFrame.LookVector end
 				if UserInputService:IsKeyDown(Enum.KeyCode.S) then moveDir = moveDir - Camera.CFrame.LookVector end
 				if UserInputService:IsKeyDown(Enum.KeyCode.A) then moveDir = moveDir - Camera.CFrame.RightVector end
 				if UserInputService:IsKeyDown(Enum.KeyCode.D) then moveDir = moveDir + Camera.CFrame.RightVector end
+				if UserInputService:IsKeyDown(Enum.KeyCode.Space) then moveDir = moveDir + Vector3.new(0, 1, 0) end
+				if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then moveDir = moveDir - Vector3.new(0, 1, 0) end
+
 				bv.Velocity = moveDir * speed
 				bg.CFrame = Camera.CFrame
 				RunService.RenderStepped:Wait()
@@ -151,8 +173,8 @@ local function toggleFlight(active)
 		end)
 	else
 		if hum then hum.PlatformStand = false end
-		if bg then bg:Destroy() end
-		if bv then bv:Destroy() end
+		if bg then bg:Destroy() bg = nil end
+		if bv then bv:Destroy() bv = nil end
 	end
 end
 
@@ -160,40 +182,43 @@ end
 RunService.Stepped:Connect(function()
 	if noclip and character then
 		for _, p in ipairs(character:GetDescendants()) do
-			if p:IsA("BasePart") then p.CanCollide = false end
+			if p:IsA("BasePart") then
+				p.CanCollide = false
+			end
 		end
 	end
 end)
 
--- 6. Giao diện điều khiển (UI) - Đặt góc trái gọn gàng
-if player.PlayerGui:FindFirstChild("MadilaAdminGui") then
-	player.PlayerGui.MadilaAdminGui:Destroy()
+-- 6. Giao diện điều khiển (UI)
+local guiParent = (pcall(function() return CoreGui.Name end) and CoreGui) or player:WaitForChild("PlayerGui")
+if guiParent:FindFirstChild("MadilaAdminGui") then
+	guiParent.MadilaAdminGui:Destroy()
 end
 
 local screenGui = Instance.new("ScreenGui")
 screenGui.Name = "MadilaAdminGui"
 screenGui.ResetOnSpawn = false
-screenGui.Parent = player:WaitForChild("PlayerGui")
+screenGui.Parent = guiParent
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 240, 0, 260)
-frame.Position = UDim2.new(0, 20, 0.4, 0) -- Đẩy xuống giữa màn hình tránh bị che nút game
+frame.Size = UDim2.new(0, 240, 0, 284)
+frame.Position = UDim2.new(0.75, 0, 0.3, 0)
 frame.BackgroundColor3 = Color3.fromRGB(30, 32, 36)
 frame.BorderSizePixel = 0
+frame.Active = true
+frame.Draggable = true
 frame.Parent = screenGui
-
 Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
 
 local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, 0, 0, 25)
+titleLabel.Size = UDim2.new(1, 0, 0, 28)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "--- MRDON ADMIN PANEL ---"
+titleLabel.Text = "MADILA PANEL (Kéo thả được)"
 titleLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
 titleLabel.Font = Enum.Font.SourceSansBold
-titleLabel.TextSize = 13
+titleLabel.TextSize = 14
 titleLabel.Parent = frame
 
--- Tạo nút bấm hàng loạt
 local function createButton(name, posY, color, callback)
 	local btn = Instance.new("TextButton")
 	btn.Size = UDim2.new(1, -20, 0, 28)
@@ -205,42 +230,101 @@ local function createButton(name, posY, color, callback)
 	btn.TextSize = 14
 	btn.Parent = frame
 	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
-	
 	btn.MouseButton1Click:Connect(callback)
 	return btn
 end
 
--- Khởi tạo các nút trên UI
-local volcanoBtn = createButton("Bật/Tắt Sự Kiện Núi Lửa", 30, Color3.fromRGB(180, 60, 60), function()
+local volcanoBtn
+volcanoBtn = createButton("Bật/Tắt Sự Kiện Núi Lửa", 32, Color3.fromRGB(180, 60, 60), function()
 	toggleVolcano(not volcanoActive)
 	volcanoBtn.BackgroundColor3 = volcanoActive and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(180, 60, 60)
 end)
 
-local eclipseBtn = createButton("Bật/Tắt Sự Kiện Nhật Thực", 66, Color3.fromRGB(80, 60, 140), function()
+local eclipseBtn
+eclipseBtn = createButton("Bật/Tắt Sự Kiện Nhật Thực", 68, Color3.fromRGB(80, 60, 140), function()
 	toggleEclipse(not eclipseActive)
 	eclipseBtn.BackgroundColor3 = eclipseActive and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(80, 60, 140)
 end)
 
-local espBtn = createButton("Bật/Tắt Định Vị (ESP Bot/Player)", 102, Color3.fromRGB(60, 140, 180), function()
+local espBtn
+espBtn = createButton("Bật/Tắt Định Vị (ESP)", 104, Color3.fromRGB(60, 140, 180), function()
 	toggleESP(not espEnabled)
 	espBtn.BackgroundColor3 = espEnabled and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(60, 140, 180)
 end)
 
-local flyBtn = createButton("Bật/Tắt Bay (Fly)", 138, Color3.fromRGB(60, 120, 180), function()
+local flyBtn
+flyBtn = createButton("Bật/Tắt Bay (Fly)", 140, Color3.fromRGB(60, 120, 180), function()
 	toggleFlight(not flying)
 	flyBtn.BackgroundColor3 = flying and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(60, 120, 180)
 end)
 
-local noclipBtn = createButton("Bật/Tắt Xuyên Tường", 174, Color3.fromRGB(120, 60, 180), function()
+-- Thanh chỉnh tốc độ bay (Nút -10 / Ô nhập số / Nút +10)
+local minusBtn = Instance.new("TextButton")
+minusBtn.Size = UDim2.new(0, 32, 0, 28)
+minusBtn.Position = UDim2.new(0, 10, 0, 176)
+minusBtn.Text = "-10"
+minusBtn.BackgroundColor3 = Color3.fromRGB(70, 75, 85)
+minusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+minusBtn.Font = Enum.Font.SourceSansBold
+minusBtn.TextSize = 13
+minusBtn.Parent = frame
+Instance.new("UICorner", minusBtn).CornerRadius = UDim.new(0, 6)
+
+local speedBox = Instance.new("TextBox")
+speedBox.Size = UDim2.new(1, -96, 0, 28)
+speedBox.Position = UDim2.new(0, 48, 0, 176)
+speedBox.Text = tostring(speed)
+speedBox.PlaceholderText = "Tốc độ..."
+speedBox.BackgroundColor3 = Color3.fromRGB(45, 48, 54)
+speedBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+speedBox.Font = Enum.Font.SourceSansBold
+speedBox.TextSize = 14
+speedBox.Parent = frame
+Instance.new("UICorner", speedBox).CornerRadius = UDim.new(0, 6)
+
+local plusBtn = Instance.new("TextButton")
+plusBtn.Size = UDim2.new(0, 32, 0, 28)
+plusBtn.Position = UDim2.new(1, -42, 0, 176)
+plusBtn.Text = "+10"
+plusBtn.BackgroundColor3 = Color3.fromRGB(70, 75, 85)
+plusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+plusBtn.Font = Enum.Font.SourceSansBold
+plusBtn.TextSize = 13
+plusBtn.Parent = frame
+Instance.new("UICorner", plusBtn).CornerRadius = UDim.new(0, 6)
+
+speedBox.FocusLost:Connect(function()
+	local num = tonumber(speedBox.Text)
+	if num and num > 0 then
+		speed = num
+	else
+		speedBox.Text = tostring(speed)
+	end
+end)
+
+minusBtn.MouseButton1Click:Connect(function()
+	speed = math.max(10, speed - 10)
+	speedBox.Text = tostring(speed)
+end)
+
+plusBtn.MouseButton1Click:Connect(function()
+	speed = speed + 10
+	speedBox.Text = tostring(speed)
+end)
+
+local noclipBtn
+noclipBtn = createButton("Bật/Tắt Xuyên Tường", 212, Color3.fromRGB(120, 60, 180), function()
 	noclip = not noclip
 	noclipBtn.BackgroundColor3 = noclip and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(120, 60, 180)
 end)
 
-createButton("Giảm Lag (Lag Fix)", 210, Color3.fromRGB(180, 140, 60), function()
+createButton("Giảm Lag (Lag Fix)", 248, Color3.fromRGB(180, 140, 60), function()
 	for _, desc in ipairs(Workspace:GetDescendants()) do
-		if desc:IsA("BasePart") then desc.CastShadow = false end
+		if desc:IsA("BasePart") then
+			desc.CastShadow = false
+		end
 	end
 	print("[MrDon] Đã giảm lag thành công.")
 end)
 
-print("[MrDon] Code tổng hợp Madila.lua đã khởi chạy hoàn tất trên Volcano!")
+print("[MrDon] Code tổng hợp Madila.lua đã sẵn sàng!")
