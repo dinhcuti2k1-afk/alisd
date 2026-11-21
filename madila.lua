@@ -1,12 +1,11 @@
 -- ============================================================================
--- SCRIPT TỔNG HỢP: MADILA.LUA (99 NIGHTS - CHỌN MÓN + NHẬP SL + OK + FLY SPEED)
+-- SCRIPT TỔNG HỢP: MADILA.LUA - 99 NIGHTS (AN TOÀN CHO THỎ, SÓI, CỦ, GỖ)
 -- ============================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local Camera = Workspace.CurrentCamera
 
@@ -25,24 +24,23 @@ local selectedItem = "wood"
 local bg, bv
 local espObjects = {}
 
--- Nhãn hiển thị & từ khóa tài nguyên (tối ưu cho 99 Nights in the Forest)
 local itemLabels = {
 	wood = "Gỗ",
 	carrot = "Cà Rốt",
 	grape = "Nho",
-	rabbit_meat = "Thịt Thỏ",
-	wolf_meat = "Thịt Sói"
+	rabbit_meat = "Thỏ",
+	wolf_meat = "Sói"
 }
 
+-- Lọc từ khóa chặt chẽ hơn để tránh lấy nhầm các object lớn không liên quan
 local itemKeywords = {
-	wood = { "log", "wood", "plank", "twig", "branch", "timber", "lumber", "tree", "go", "gỗ", "củi" },
+	wood = { "log", "wood", "plank", "twig", "branch", "go", "gỗ", "củi" },
 	carrot = { "carrot", "ca rot", "cà rốt", "carot" },
-	grape = { "grape", "grapes", "berry", "berries", "nho", "chùm nho" },
-	rabbit_meat = { "rabbit meat", "morsel", "rabbit", "bunny", "thit tho", "thịt thỏ", "thỏ" },
-	wolf_meat = { "wolf meat", "steak", "wolf", "thit soi", "thịt sói", "sói" }
+	grape = { "grape", "grapes", "berry", "berries", "nho" },
+	rabbit_meat = { "rabbit", "bunny", "tho", "thỏ" },
+	wolf_meat = { "wolf", "soi", "sói" }
 }
 
--- Cập nhật lại nhân vật khi hồi sinh
 player.CharacterAdded:Connect(function(newChar)
 	character = newChar
 	humanoidRootPart = newChar:WaitForChild("HumanoidRootPart")
@@ -51,7 +49,6 @@ player.CharacterAdded:Connect(function(newChar)
 	if bv then bv:Destroy() bv = nil end
 end)
 
--- 0. Hàm hỗ trợ đưa tài nguyên có sẵn xuất hiện ngay chỗ bạn đang đứng khi bấm OK
 local function matchesKeywords(nameStr, keywords)
 	local lowerName = string.lower(nameStr or "")
 	for _, kw in ipairs(keywords) do
@@ -88,32 +85,19 @@ local function findTargetPart(obj)
 	return nil
 end
 
-local function triggerInteractablesOn(obj, part)
+-- Chỉ kích hoạt prompt/click nhẹ nhàng cho đồ nhặt (củ/quả/gỗ), KHÔNG dùng cho thỏ/sói để tránh làm mất mục tiêu
+local function gentlePickupTrigger(obj)
 	for _, d in ipairs(obj:GetDescendants()) do
-		if d:IsA("ProximityPrompt") then
+		if d:IsA("ProximityPrompt") and typeof(fireproximityprompt) == "function" then
 			pcall(function()
-				if typeof(fireproximityprompt) == "function" then
-					fireproximityprompt(d)
-				else
-					d:InputHoldBegin()
-					task.wait(0.05)
-					d:InputHoldEnd()
-				end
+				fireproximityprompt(d)
 			end)
-		elseif d:IsA("ClickDetector") then
+			break
+		elseif d:IsA("ClickDetector") and typeof(fireclickdetector) == "function" then
 			pcall(function()
-				if typeof(fireclickdetector) == "function" then
-					fireclickdetector(d)
-				end
+				fireclickdetector(d)
 			end)
-		elseif d:IsA("TouchTransmitter") and part and humanoidRootPart then
-			pcall(function()
-				if typeof(firetouchinterest) == "function" then
-					firetouchinterest(humanoidRootPart, part, 0)
-					task.wait(0.03)
-					firetouchinterest(humanoidRootPart, part, 1)
-				end
-			end)
+			break
 		end
 	end
 end
@@ -128,30 +112,51 @@ local function spawnItemAtPlayer(itemKey, amount)
 	if not qty or qty < 1 then
 		qty = 1
 	end
-	qty = math.floor(qty)
+	qty = math.clamp(math.floor(qty), 1, 50)
 
 	local keywords = itemKeywords[itemKey]
 	if not keywords then return end
 
+	local isCreature = (itemKey == "rabbit_meat" or itemKey == "wolf_meat")
 	local candidates = {}
+	local seenRoots = {}
+
 	for _, obj in ipairs(Workspace:GetDescendants()) do
 		if obj ~= character and not obj:IsDescendantOf(character) then
 			if matchesKeywords(obj.Name, keywords) then
-				local part = findTargetPart(obj)
-				if part then
-					local dist = (part.Position - humanoidRootPart.Position).Magnitude
-					table.insert(candidates, { obj = obj, part = part, dist = dist })
+				-- Tránh lấy trùng cả Model lẫn Part con bên trong cùng 1 vật thể
+				local rootObj = obj
+				if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") and matchesKeywords(obj.Parent.Name, keywords) then
+					rootObj = obj.Parent
+				end
+
+				if not seenRoots[rootObj] then
+					local part = findTargetPart(rootObj)
+					if part then
+						-- Với đồ nhặt (gỗ, củ, nho), ưu tiên vật thể chưa bị Anchored cứng nếu có
+						local dist = (part.Position - humanoidRootPart.Position).Magnitude
+						table.insert(candidates, {
+							obj = rootObj,
+							part = part,
+							dist = dist,
+							anchored = part.Anchored
+						})
+						seenRoots[rootObj] = true
+					end
 				end
 			end
 		end
 	end
 
 	table.sort(candidates, function(a, b)
+		if not isCreature and a.anchored ~= b.anchored then
+			return not a.anchored
+		end
 		return a.dist < b.dist
 	end)
 
 	local movedCount = 0
-	local standPos = humanoidRootPart.Position + (humanoidRootPart.CFrame.LookVector * 2.5)
+	local standPos = humanoidRootPart.Position + (humanoidRootPart.CFrame.LookVector * 3)
 
 	for i = 1, math.min(qty, #candidates) do
 		local entry = candidates[i]
@@ -160,14 +165,14 @@ local function spawnItemAtPlayer(itemKey, amount)
 
 		if obj and obj.Parent and part and part.Parent then
 			local angle = (i / math.max(1, math.min(qty, #candidates))) * math.pi * 2
-			local radius = math.min(3.5, 1.2 + (i * 0.12))
+			local radius = isCreature and (2.2 + (i * 0.25)) or (1.4 + (i * 0.15))
 			local targetCFrame = CFrame.new(
 				standPos.X + math.cos(angle) * radius,
-				humanoidRootPart.Position.Y + ((i % 4) * 0.45),
+				humanoidRootPart.Position.Y + 0.5,
 				standPos.Z + math.sin(angle) * radius
 			)
 
-			pcall(function()
+			local movedOK = pcall(function()
 				if obj:IsA("Model") then
 					obj:PivotTo(targetCFrame)
 				elseif part:IsA("BasePart") then
@@ -179,35 +184,23 @@ local function spawnItemAtPlayer(itemKey, amount)
 				end
 			end)
 
-			triggerInteractablesOn(obj, part)
-			movedCount += 1
-		end
-	end
-
-	-- Thử gọi RemoteEvent nếu game có sẵn event nhận tài nguyên
-	for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
-		if remote:IsA("RemoteEvent") then
-			local rName = string.lower(remote.Name)
-			if string.find(rName, "collect", 1, true)
-				or string.find(rName, "gather", 1, true)
-				or string.find(rName, "pickup", 1, true)
-				or string.find(rName, "harvest", 1, true)
-				or string.find(rName, "resource", 1, true) then
-				pcall(function()
-					remote:FireServer(itemKey, qty)
-				end)
+			if movedOK then
+				movedCount += 1
+				-- Chỉ tự kích hoạt nhẹ cho củ/quả nếu có prompt/click, không spam cho thỏ/sói/gỗ
+				if itemKey == "carrot" or itemKey == "grape" then
+					gentlePickupTrigger(obj)
+				end
 			end
 		end
 	end
 
-	print(string.format("[MrDon - 99 Nights] Món: %s | Nhập: %d | Đưa về chỗ đứng: %d/%d", itemLabels[itemKey] or itemKey, qty, movedCount, #candidates))
+	print(string.format("[MrDon] %s | Nhập: %d | Đưa tới quanh chỗ đứng: %d/%d", itemLabels[itemKey] or itemKey, qty, movedCount, #candidates))
 end
 
--- 1. Sự kiện Núi Lửa (Volcano Eruption Effect)
+-- 1. Sự kiện Núi Lửa
 local function toggleVolcano(active)
 	volcanoActive = active
 	if volcanoActive then
-		print("[MrDon] Sự kiện Núi Lửa đã bắt đầu!")
 		task.spawn(function()
 			while volcanoActive do
 				Camera.CFrame = Camera.CFrame * CFrame.new(
@@ -236,12 +229,10 @@ local function toggleVolcano(active)
 				task.wait(0.15)
 			end
 		end)
-	else
-		print("[MrDon] Đã tắt sự kiện Núi Lửa.")
 	end
 end
 
--- 2. Sự kiện Nhật Thực (Solar Eclipse Effect)
+-- 2. Sự kiện Nhật Thực
 local originalClockTime = Lighting.ClockTime
 local originalBrightness = Lighting.Brightness
 local originalAmbient = Lighting.Ambient
@@ -250,13 +241,11 @@ local originalOutdoor = Lighting.OutdoorAmbient
 local function toggleEclipse(active)
 	eclipseActive = active
 	if eclipseActive then
-		print("[MrDon] Sự kiện Nhật Thực bắt đầu!")
 		Lighting.ClockTime = 0
 		Lighting.Brightness = 0.1
 		Lighting.Ambient = Color3.fromRGB(20, 20, 30)
 		Lighting.OutdoorAmbient = Color3.fromRGB(10, 10, 20)
 	else
-		print("[MrDon] Khôi phục lại ánh sáng ban đầu.")
 		Lighting.ClockTime = originalClockTime
 		Lighting.Brightness = originalBrightness
 		Lighting.Ambient = originalAmbient
@@ -264,7 +253,7 @@ local function toggleEclipse(active)
 	end
 end
 
--- 3. Tính năng Định vị (ESP) Player và Bot
+-- 3. Định vị ESP
 local function toggleESP(active)
 	espEnabled = active
 	if not espEnabled then
@@ -308,7 +297,7 @@ RunService.RenderStepped:Connect(function()
 	end
 end)
 
--- 4. Tính năng Bay (Fly) - Hỗ trợ cập nhật tốc độ trực tiếp
+-- 4. Bay (Fly) + Chỉnh tốc độ
 local function toggleFlight(active)
 	flying = active
 	if not character or not humanoidRootPart then return end
@@ -360,7 +349,7 @@ RunService.Stepped:Connect(function()
 	end
 end)
 
--- 6. Giao diện điều khiển (UI)
+-- 6. Giao diện UI
 local guiParent = (pcall(function() return CoreGui.Name end) and CoreGui) or player:WaitForChild("PlayerGui")
 if guiParent:FindFirstChild("MadilaAdminGui") then
 	guiParent.MadilaAdminGui:Destroy()
@@ -429,7 +418,6 @@ flyBtn = createButton("Bật/Tắt Bay (Fly)", 140, Color3.fromRGB(60, 120, 180)
 	flyBtn.BackgroundColor3 = flying and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(60, 120, 180)
 end)
 
--- Thanh chỉnh tốc độ bay (Nút -10 / Ô nhập số / Nút +10)
 local minusBtn = Instance.new("TextButton")
 minusBtn.Size = UDim2.new(0, 34, 0, 28)
 minusBtn.Position = UDim2.new(0, 10, 0, 176)
@@ -489,7 +477,6 @@ noclipBtn = createButton("Bật/Tắt Xuyên Tường", 212, Color3.fromRGB(120,
 	noclipBtn.BackgroundColor3 = noclip and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(120, 60, 180)
 end)
 
--- Hàng 1 chọn tài nguyên: Gỗ | Cà Rốt | Nho
 local resourceButtons = {}
 
 local function selectResource(itemKey)
@@ -521,18 +508,15 @@ end
 createSelectBtn("Gỗ", 10, 246, 76, Color3.fromRGB(140, 95, 45), "wood")
 createSelectBtn("Cà Rốt", 92, 246, 76, Color3.fromRGB(220, 115, 35), "carrot")
 createSelectBtn("Nho", 174, 246, 76, Color3.fromRGB(115, 55, 165), "grape")
-
--- Hàng 2 chọn tài nguyên: Thịt Thỏ | Thịt Sói
-createSelectBtn("Thịt Thỏ", 10, 278, 116, Color3.fromRGB(165, 115, 95), "rabbit_meat")
-createSelectBtn("Thịt Sói", 134, 278, 116, Color3.fromRGB(110, 115, 130), "wolf_meat")
+createSelectBtn("Thỏ", 10, 278, 116, Color3.fromRGB(165, 115, 95), "rabbit_meat")
+createSelectBtn("Sói", 134, 278, 116, Color3.fromRGB(110, 115, 130), "wolf_meat")
 
 selectResource("wood")
 
--- Ô nhập số lượng + Nút OK (đưa tài nguyên xuất hiện ngay chỗ đứng)
 local qtyBox = Instance.new("TextBox")
 qtyBox.Size = UDim2.new(0, 154, 0, 28)
 qtyBox.Position = UDim2.new(0, 10, 0, 312)
-qtyBox.Text = "5"
+qtyBox.Text = "2"
 qtyBox.PlaceholderText = "Nhập số lượng..."
 qtyBox.BackgroundColor3 = Color3.fromRGB(45, 48, 54)
 qtyBox.TextColor3 = Color3.fromRGB(255, 230, 120)
@@ -574,4 +558,4 @@ createButton("Giảm Lag (Lag Fix)", 348, Color3.fromRGB(180, 140, 60), function
 	print("[MrDon] Đã giảm lag thành công.")
 end)
 
-print("[MrDon] Madila.lua (99 Nights - Chọn món + Nhập SL + OK) đã sẵn sàng!")
+print("[MrDon] Madila.lua bản an toàn cho Thỏ, Sói, Củ, Gỗ đã sẵn sàng!")
