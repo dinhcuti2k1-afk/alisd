@@ -1,5 +1,5 @@
 -- ============================================================================
--- SCRIPT TỔNG HỢP: MADILA.LUA - 99 NIGHTS (AN TOÀN CHO THỎ, SÓI, CỦ, GỖ)
+-- SCRIPT TỔNG HỢP: MADILA.LUA - 99 NIGHTS (LỌC KHÚC GỖ NHỎ GỌN + AN TOÀN)
 -- ============================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
@@ -32,9 +32,9 @@ local itemLabels = {
 	wolf_meat = "Sói"
 }
 
--- Lọc từ khóa chặt chẽ hơn để tránh lấy nhầm các object lớn không liên quan
+-- Bỏ "tree" để tránh kéo nhầm cây/khối lớn trên map
 local itemKeywords = {
-	wood = { "log", "wood", "plank", "twig", "branch", "go", "gỗ", "củi" },
+	wood = { "log", "wood", "plank", "twig", "go", "gỗ", "củi" },
 	carrot = { "carrot", "ca rot", "cà rốt", "carot" },
 	grape = { "grape", "grapes", "berry", "berries", "nho" },
 	rabbit_meat = { "rabbit", "bunny", "tho", "thỏ" },
@@ -57,6 +57,26 @@ local function matchesKeywords(nameStr, keywords)
 		end
 	end
 	return false
+end
+
+local function getObjectSize(obj)
+	if obj:IsA("BasePart") then
+		return obj.Size
+	elseif obj:IsA("Model") then
+		local _, size = obj:GetBoundingBox()
+		return size
+	end
+	return Vector3.new(1, 1, 1)
+end
+
+local function isOversizedForPickup(obj, itemKey)
+	local sz = getObjectSize(obj)
+	local maxDim = math.max(sz.X, sz.Y, sz.Z)
+	if itemKey == "wood" then
+		-- Chỉ lấy khúc gỗ/củi cỡ vừa và nhỏ, loại bỏ thân cây/khối khổng lồ
+		return maxDim > 12
+	end
+	return maxDim > 15
 end
 
 local function findTargetPart(obj)
@@ -85,7 +105,6 @@ local function findTargetPart(obj)
 	return nil
 end
 
--- Chỉ kích hoạt prompt/click nhẹ nhàng cho đồ nhặt (củ/quả/gỗ), KHÔNG dùng cho thỏ/sói để tránh làm mất mục tiêu
 local function gentlePickupTrigger(obj)
 	for _, d in ipairs(obj:GetDescendants()) do
 		if d:IsA("ProximityPrompt") and typeof(fireproximityprompt) == "function" then
@@ -112,7 +131,7 @@ local function spawnItemAtPlayer(itemKey, amount)
 	if not qty or qty < 1 then
 		qty = 1
 	end
-	qty = math.clamp(math.floor(qty), 1, 50)
+	qty = math.clamp(math.floor(qty), 1, 30)
 
 	local keywords = itemKeywords[itemKey]
 	if not keywords then return end
@@ -124,16 +143,14 @@ local function spawnItemAtPlayer(itemKey, amount)
 	for _, obj in ipairs(Workspace:GetDescendants()) do
 		if obj ~= character and not obj:IsDescendantOf(character) then
 			if matchesKeywords(obj.Name, keywords) then
-				-- Tránh lấy trùng cả Model lẫn Part con bên trong cùng 1 vật thể
 				local rootObj = obj
 				if obj:IsA("BasePart") and obj.Parent and obj.Parent:IsA("Model") and matchesKeywords(obj.Parent.Name, keywords) then
 					rootObj = obj.Parent
 				end
 
-				if not seenRoots[rootObj] then
+				if not seenRoots[rootObj] and not isOversizedForPickup(rootObj, itemKey) then
 					local part = findTargetPart(rootObj)
 					if part then
-						-- Với đồ nhặt (gỗ, củ, nho), ưu tiên vật thể chưa bị Anchored cứng nếu có
 						local dist = (part.Position - humanoidRootPart.Position).Magnitude
 						table.insert(candidates, {
 							obj = rootObj,
@@ -156,7 +173,7 @@ local function spawnItemAtPlayer(itemKey, amount)
 	end)
 
 	local movedCount = 0
-	local standPos = humanoidRootPart.Position + (humanoidRootPart.CFrame.LookVector * 3)
+	local centerPos = humanoidRootPart.Position + (humanoidRootPart.CFrame.LookVector * 3.5)
 
 	for i = 1, math.min(qty, #candidates) do
 		local entry = candidates[i]
@@ -165,11 +182,11 @@ local function spawnItemAtPlayer(itemKey, amount)
 
 		if obj and obj.Parent and part and part.Parent then
 			local angle = (i / math.max(1, math.min(qty, #candidates))) * math.pi * 2
-			local radius = isCreature and (2.2 + (i * 0.25)) or (1.4 + (i * 0.15))
+			local radius = isCreature and (2.5 + (i * 0.25)) or (1.8 + (i * 0.2))
 			local targetCFrame = CFrame.new(
-				standPos.X + math.cos(angle) * radius,
-				humanoidRootPart.Position.Y + 0.5,
-				standPos.Z + math.sin(angle) * radius
+				centerPos.X + math.cos(angle) * radius,
+				humanoidRootPart.Position.Y + 0.8 + ((i % 3) * 0.4),
+				centerPos.Z + math.sin(angle) * radius
 			)
 
 			local movedOK = pcall(function()
@@ -186,7 +203,6 @@ local function spawnItemAtPlayer(itemKey, amount)
 
 			if movedOK then
 				movedCount += 1
-				-- Chỉ tự kích hoạt nhẹ cho củ/quả nếu có prompt/click, không spam cho thỏ/sói/gỗ
 				if itemKey == "carrot" or itemKey == "grape" then
 					gentlePickupTrigger(obj)
 				end
@@ -194,7 +210,7 @@ local function spawnItemAtPlayer(itemKey, amount)
 		end
 	end
 
-	print(string.format("[MrDon] %s | Nhập: %d | Đưa tới quanh chỗ đứng: %d/%d", itemLabels[itemKey] or itemKey, qty, movedCount, #candidates))
+	print(string.format("[MrDon] %s | Nhập: %d | Đưa tới: %d/%d", itemLabels[itemKey] or itemKey, qty, movedCount, #candidates))
 end
 
 -- 1. Sự kiện Núi Lửa
@@ -516,7 +532,7 @@ selectResource("wood")
 local qtyBox = Instance.new("TextBox")
 qtyBox.Size = UDim2.new(0, 154, 0, 28)
 qtyBox.Position = UDim2.new(0, 10, 0, 312)
-qtyBox.Text = "2"
+qtyBox.Text = "1"
 qtyBox.PlaceholderText = "Nhập số lượng..."
 qtyBox.BackgroundColor3 = Color3.fromRGB(45, 48, 54)
 qtyBox.TextColor3 = Color3.fromRGB(255, 230, 120)
@@ -558,4 +574,4 @@ createButton("Giảm Lag (Lag Fix)", 348, Color3.fromRGB(180, 140, 60), function
 	print("[MrDon] Đã giảm lag thành công.")
 end)
 
-print("[MrDon] Madila.lua bản an toàn cho Thỏ, Sói, Củ, Gỗ đã sẵn sàng!")
+print("[MrDon] Madila.lua đã lọc kích thước khối gỗ/vật thể để tránh kéo nhầm vật lớn!")
