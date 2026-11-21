@@ -1,11 +1,12 @@
 -- ============================================================================
--- SCRIPT TỔNG HỢP: MADILA.LUA (TÙY CHỈNH TỐC ĐỘ BAY + SỰ KIỆN + ESP + NOCLIP)
+-- SCRIPT TỔNG HỢP: MADILA.LUA (99 NIGHTS - CHỌN MÓN + NHẬP SL + OK + FLY SPEED)
 -- ============================================================================
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local Workspace = game:GetService("Workspace")
 local Lighting = game:GetService("Lighting")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
 local CoreGui = game:GetService("CoreGui")
 local Camera = Workspace.CurrentCamera
 
@@ -20,8 +21,26 @@ local espEnabled = false
 local volcanoActive = false
 local eclipseActive = false
 local speed = 50
+local selectedItem = "wood"
 local bg, bv
 local espObjects = {}
+
+-- Nhãn hiển thị & từ khóa tài nguyên (tối ưu cho 99 Nights in the Forest)
+local itemLabels = {
+	wood = "Gỗ",
+	carrot = "Cà Rốt",
+	grape = "Nho",
+	rabbit_meat = "Thịt Thỏ",
+	wolf_meat = "Thịt Sói"
+}
+
+local itemKeywords = {
+	wood = { "log", "wood", "plank", "twig", "branch", "timber", "lumber", "tree", "go", "gỗ", "củi" },
+	carrot = { "carrot", "ca rot", "cà rốt", "carot" },
+	grape = { "grape", "grapes", "berry", "berries", "nho", "chùm nho" },
+	rabbit_meat = { "rabbit meat", "morsel", "rabbit", "bunny", "thit tho", "thịt thỏ", "thỏ" },
+	wolf_meat = { "wolf meat", "steak", "wolf", "thit soi", "thịt sói", "sói" }
+}
 
 -- Cập nhật lại nhân vật khi hồi sinh
 player.CharacterAdded:Connect(function(newChar)
@@ -31,6 +50,158 @@ player.CharacterAdded:Connect(function(newChar)
 	if bg then bg:Destroy() bg = nil end
 	if bv then bv:Destroy() bv = nil end
 end)
+
+-- 0. Hàm hỗ trợ đưa tài nguyên có sẵn xuất hiện ngay chỗ bạn đang đứng khi bấm OK
+local function matchesKeywords(nameStr, keywords)
+	local lowerName = string.lower(nameStr or "")
+	for _, kw in ipairs(keywords) do
+		if string.find(lowerName, string.lower(kw), 1, true) then
+			return true
+		end
+	end
+	return false
+end
+
+local function findTargetPart(obj)
+	if obj:IsA("BasePart") then
+		return obj
+	elseif obj:IsA("Model") then
+		if obj.PrimaryPart then
+			return obj.PrimaryPart
+		end
+		for _, d in ipairs(obj:GetDescendants()) do
+			if d:IsA("BasePart") then
+				return d
+			end
+		end
+	elseif obj:IsA("Tool") then
+		local handle = obj:FindFirstChild("Handle")
+		if handle and handle:IsA("BasePart") then
+			return handle
+		end
+		for _, d in ipairs(obj:GetDescendants()) do
+			if d:IsA("BasePart") then
+				return d
+			end
+		end
+	end
+	return nil
+end
+
+local function triggerInteractablesOn(obj, part)
+	for _, d in ipairs(obj:GetDescendants()) do
+		if d:IsA("ProximityPrompt") then
+			pcall(function()
+				if typeof(fireproximityprompt) == "function" then
+					fireproximityprompt(d)
+				else
+					d:InputHoldBegin()
+					task.wait(0.05)
+					d:InputHoldEnd()
+				end
+			end)
+		elseif d:IsA("ClickDetector") then
+			pcall(function()
+				if typeof(fireclickdetector) == "function" then
+					fireclickdetector(d)
+				end
+			end)
+		elseif d:IsA("TouchTransmitter") and part and humanoidRootPart then
+			pcall(function()
+				if typeof(firetouchinterest) == "function" then
+					firetouchinterest(humanoidRootPart, part, 0)
+					task.wait(0.03)
+					firetouchinterest(humanoidRootPart, part, 1)
+				end
+			end)
+		end
+	end
+end
+
+local function spawnItemAtPlayer(itemKey, amount)
+	if not character or not humanoidRootPart then
+		warn("[MrDon] Chưa tìm thấy nhân vật!")
+		return
+	end
+
+	local qty = tonumber(amount)
+	if not qty or qty < 1 then
+		qty = 1
+	end
+	qty = math.floor(qty)
+
+	local keywords = itemKeywords[itemKey]
+	if not keywords then return end
+
+	local candidates = {}
+	for _, obj in ipairs(Workspace:GetDescendants()) do
+		if obj ~= character and not obj:IsDescendantOf(character) then
+			if matchesKeywords(obj.Name, keywords) then
+				local part = findTargetPart(obj)
+				if part then
+					local dist = (part.Position - humanoidRootPart.Position).Magnitude
+					table.insert(candidates, { obj = obj, part = part, dist = dist })
+				end
+			end
+		end
+	end
+
+	table.sort(candidates, function(a, b)
+		return a.dist < b.dist
+	end)
+
+	local movedCount = 0
+	local standPos = humanoidRootPart.Position + (humanoidRootPart.CFrame.LookVector * 2.5)
+
+	for i = 1, math.min(qty, #candidates) do
+		local entry = candidates[i]
+		local obj = entry.obj
+		local part = entry.part
+
+		if obj and obj.Parent and part and part.Parent then
+			local angle = (i / math.max(1, math.min(qty, #candidates))) * math.pi * 2
+			local radius = math.min(3.5, 1.2 + (i * 0.12))
+			local targetCFrame = CFrame.new(
+				standPos.X + math.cos(angle) * radius,
+				humanoidRootPart.Position.Y + ((i % 4) * 0.45),
+				standPos.Z + math.sin(angle) * radius
+			)
+
+			pcall(function()
+				if obj:IsA("Model") then
+					obj:PivotTo(targetCFrame)
+				elseif part:IsA("BasePart") then
+					if not part.Anchored then
+						part.AssemblyLinearVelocity = Vector3.zero
+						part.AssemblyAngularVelocity = Vector3.zero
+					end
+					part.CFrame = targetCFrame
+				end
+			end)
+
+			triggerInteractablesOn(obj, part)
+			movedCount += 1
+		end
+	end
+
+	-- Thử gọi RemoteEvent nếu game có sẵn event nhận tài nguyên
+	for _, remote in ipairs(ReplicatedStorage:GetDescendants()) do
+		if remote:IsA("RemoteEvent") then
+			local rName = string.lower(remote.Name)
+			if string.find(rName, "collect", 1, true)
+				or string.find(rName, "gather", 1, true)
+				or string.find(rName, "pickup", 1, true)
+				or string.find(rName, "harvest", 1, true)
+				or string.find(rName, "resource", 1, true) then
+				pcall(function()
+					remote:FireServer(itemKey, qty)
+				end)
+			end
+		end
+	end
+
+	print(string.format("[MrDon - 99 Nights] Món: %s | Nhập: %d | Đưa về chỗ đứng: %d/%d", itemLabels[itemKey] or itemKey, qty, movedCount, #candidates))
+end
 
 -- 1. Sự kiện Núi Lửa (Volcano Eruption Effect)
 local function toggleVolcano(active)
@@ -201,8 +372,8 @@ screenGui.ResetOnSpawn = false
 screenGui.Parent = guiParent
 
 local frame = Instance.new("Frame")
-frame.Size = UDim2.new(0, 240, 0, 284)
-frame.Position = UDim2.new(0.75, 0, 0.3, 0)
+frame.Size = UDim2.new(0, 260, 0, 444)
+frame.Position = UDim2.new(0.73, 0, 0.12, 0)
 frame.BackgroundColor3 = Color3.fromRGB(30, 32, 36)
 frame.BorderSizePixel = 0
 frame.Active = true
@@ -213,7 +384,7 @@ Instance.new("UICorner", frame).CornerRadius = UDim.new(0, 8)
 local titleLabel = Instance.new("TextLabel")
 titleLabel.Size = UDim2.new(1, 0, 0, 28)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "MADILA PANEL (Kéo thả được)"
+titleLabel.Text = "MADILA - 99 NIGHTS"
 titleLabel.TextColor3 = Color3.fromRGB(255, 200, 0)
 titleLabel.Font = Enum.Font.SourceSansBold
 titleLabel.TextSize = 14
@@ -260,7 +431,7 @@ end)
 
 -- Thanh chỉnh tốc độ bay (Nút -10 / Ô nhập số / Nút +10)
 local minusBtn = Instance.new("TextButton")
-minusBtn.Size = UDim2.new(0, 32, 0, 28)
+minusBtn.Size = UDim2.new(0, 34, 0, 28)
 minusBtn.Position = UDim2.new(0, 10, 0, 176)
 minusBtn.Text = "-10"
 minusBtn.BackgroundColor3 = Color3.fromRGB(70, 75, 85)
@@ -271,8 +442,8 @@ minusBtn.Parent = frame
 Instance.new("UICorner", minusBtn).CornerRadius = UDim.new(0, 6)
 
 local speedBox = Instance.new("TextBox")
-speedBox.Size = UDim2.new(1, -96, 0, 28)
-speedBox.Position = UDim2.new(0, 48, 0, 176)
+speedBox.Size = UDim2.new(1, -100, 0, 28)
+speedBox.Position = UDim2.new(0, 50, 0, 176)
 speedBox.Text = tostring(speed)
 speedBox.PlaceholderText = "Tốc độ..."
 speedBox.BackgroundColor3 = Color3.fromRGB(45, 48, 54)
@@ -283,8 +454,8 @@ speedBox.Parent = frame
 Instance.new("UICorner", speedBox).CornerRadius = UDim.new(0, 6)
 
 local plusBtn = Instance.new("TextButton")
-plusBtn.Size = UDim2.new(0, 32, 0, 28)
-plusBtn.Position = UDim2.new(1, -42, 0, 176)
+plusBtn.Size = UDim2.new(0, 34, 0, 28)
+plusBtn.Position = UDim2.new(1, -44, 0, 176)
 plusBtn.Text = "+10"
 plusBtn.BackgroundColor3 = Color3.fromRGB(70, 75, 85)
 plusBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
@@ -318,7 +489,83 @@ noclipBtn = createButton("Bật/Tắt Xuyên Tường", 212, Color3.fromRGB(120,
 	noclipBtn.BackgroundColor3 = noclip and Color3.fromRGB(60, 180, 90) or Color3.fromRGB(120, 60, 180)
 end)
 
-createButton("Giảm Lag (Lag Fix)", 248, Color3.fromRGB(180, 140, 60), function()
+-- Hàng 1 chọn tài nguyên: Gỗ | Cà Rốt | Nho
+local resourceButtons = {}
+
+local function selectResource(itemKey)
+	selectedItem = itemKey
+	for key, btn in pairs(resourceButtons) do
+		btn.BorderSizePixel = (key == itemKey) and 2 or 0
+		btn.BorderColor3 = Color3.fromRGB(255, 235, 100)
+	end
+end
+
+local function createSelectBtn(label, xPos, yPos, width, color, itemKey)
+	local btn = Instance.new("TextButton")
+	btn.Size = UDim2.new(0, width, 0, 26)
+	btn.Position = UDim2.new(0, xPos, 0, yPos)
+	btn.Text = label
+	btn.BackgroundColor3 = color
+	btn.TextColor3 = Color3.fromRGB(255, 255, 255)
+	btn.Font = Enum.Font.SourceSansBold
+	btn.TextSize = 12
+	btn.Parent = frame
+	Instance.new("UICorner", btn).CornerRadius = UDim.new(0, 6)
+	resourceButtons[itemKey] = btn
+	btn.MouseButton1Click:Connect(function()
+		selectResource(itemKey)
+	end)
+	return btn
+end
+
+createSelectBtn("Gỗ", 10, 246, 76, Color3.fromRGB(140, 95, 45), "wood")
+createSelectBtn("Cà Rốt", 92, 246, 76, Color3.fromRGB(220, 115, 35), "carrot")
+createSelectBtn("Nho", 174, 246, 76, Color3.fromRGB(115, 55, 165), "grape")
+
+-- Hàng 2 chọn tài nguyên: Thịt Thỏ | Thịt Sói
+createSelectBtn("Thịt Thỏ", 10, 278, 116, Color3.fromRGB(165, 115, 95), "rabbit_meat")
+createSelectBtn("Thịt Sói", 134, 278, 116, Color3.fromRGB(110, 115, 130), "wolf_meat")
+
+selectResource("wood")
+
+-- Ô nhập số lượng + Nút OK (đưa tài nguyên xuất hiện ngay chỗ đứng)
+local qtyBox = Instance.new("TextBox")
+qtyBox.Size = UDim2.new(0, 154, 0, 28)
+qtyBox.Position = UDim2.new(0, 10, 0, 312)
+qtyBox.Text = "5"
+qtyBox.PlaceholderText = "Nhập số lượng..."
+qtyBox.BackgroundColor3 = Color3.fromRGB(45, 48, 54)
+qtyBox.TextColor3 = Color3.fromRGB(255, 230, 120)
+qtyBox.Font = Enum.Font.SourceSansBold
+qtyBox.TextSize = 14
+qtyBox.Parent = frame
+Instance.new("UICorner", qtyBox).CornerRadius = UDim.new(0, 6)
+
+qtyBox.FocusLost:Connect(function()
+	local n = tonumber(qtyBox.Text)
+	if n and n >= 1 then
+		qtyBox.Text = tostring(math.floor(n))
+	else
+		qtyBox.Text = "1"
+	end
+end)
+
+local okBtn = Instance.new("TextButton")
+okBtn.Size = UDim2.new(0, 80, 0, 28)
+okBtn.Position = UDim2.new(0, 170, 0, 312)
+okBtn.Text = "OK"
+okBtn.BackgroundColor3 = Color3.fromRGB(50, 175, 95)
+okBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+okBtn.Font = Enum.Font.SourceSansBold
+okBtn.TextSize = 14
+okBtn.Parent = frame
+Instance.new("UICorner", okBtn).CornerRadius = UDim.new(0, 6)
+
+okBtn.MouseButton1Click:Connect(function()
+	spawnItemAtPlayer(selectedItem, qtyBox.Text)
+end)
+
+createButton("Giảm Lag (Lag Fix)", 348, Color3.fromRGB(180, 140, 60), function()
 	for _, desc in ipairs(Workspace:GetDescendants()) do
 		if desc:IsA("BasePart") then
 			desc.CastShadow = false
@@ -327,4 +574,4 @@ createButton("Giảm Lag (Lag Fix)", 248, Color3.fromRGB(180, 140, 60), function
 	print("[MrDon] Đã giảm lag thành công.")
 end)
 
-print("[MrDon] Code tổng hợp Madila.lua đã sẵn sàng!")
+print("[MrDon] Madila.lua (99 Nights - Chọn món + Nhập SL + OK) đã sẵn sàng!")
